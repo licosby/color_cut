@@ -29,9 +29,9 @@ export function Viewer() {
     const width = container.clientWidth;
     const height = container.clientHeight;
 
-    // Scene - light background for craft-studio feel
+    // Scene - soft light background for craft-studio feel
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf0f0f5);
+    scene.background = new THREE.Color(0xf8f9fc);
     sceneRef.current = scene;
 
     // Camera
@@ -77,8 +77,8 @@ export function Viewer() {
     fillLight.position.set(-5, 3, -5);
     scene.add(fillLight);
 
-    // Grid
-    const gridHelper = new THREE.GridHelper(20, 40, 0xd0d0d0, 0xe0e0e0);
+    // Grid - soft, subtle grid for spatial reference
+    const gridHelper = new THREE.GridHelper(20, 40, 0xe2e2e8, 0xededf0);
     gridHelper.position.y = -0.01;
     scene.add(gridHelper);
 

@@ -2,6 +2,8 @@ import { createContext, useContext, useReducer, ReactNode } from 'react';
 import * as THREE from 'three';
 import { ColorGroup } from '../geometry/ColorGrouper';
 
+export type UIMode = 'select' | 'highlight' | 'export';
+
 export interface AppState {
   // Model state
   model: THREE.Mesh | null;
@@ -16,6 +18,7 @@ export interface AppState {
   isLoading: boolean;
   error: string | null;
   quantizeLevel: number;
+  uiMode: UIMode;
 }
 
 const initialState: AppState = {
@@ -27,6 +30,7 @@ const initialState: AppState = {
   isLoading: false,
   error: null,
   quantizeLevel: 8,
+  uiMode: 'select',
 };
 
 type Action =
@@ -36,6 +40,7 @@ type Action =
   | { type: 'SET_COLOR_GROUPS'; payload: ColorGroup[] }
   | { type: 'SELECT_COLOR'; payload: number | null }
   | { type: 'SET_QUANTIZE_LEVEL'; payload: number }
+  | { type: 'SET_UI_MODE'; payload: UIMode }
   | { type: 'RESET' };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -61,6 +66,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, selectedColorIndex: action.payload };
     case 'SET_QUANTIZE_LEVEL':
       return { ...state, quantizeLevel: action.payload };
+    case 'SET_UI_MODE':
+      return { ...state, uiMode: action.payload };
     case 'RESET':
       return initialState;
     default:
