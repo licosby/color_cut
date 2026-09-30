@@ -5,6 +5,8 @@ import { useAppState, Layer } from '../state/UIState';
 import { Highlighting } from './Highlighting';
 import { ColorGrouper } from '../geometry/ColorGrouper';
 import { PartSelector } from '../geometry/PartSelector';
+import { SpatialHash } from '../geometry/SpatialHash';
+import { BrushThrottle } from '../geometry/BrushThrottle';
 
 export interface ViewerAPI {
   resetCamera: () => void;
@@ -13,7 +15,7 @@ export interface ViewerAPI {
 
 interface ViewerProps {
   colorGrouper: ColorGrouper | null;
-  uiMode?: 'select' | 'highlight' | 'export' | 'part';
+  uiMode?: 'select' | 'highlight' | 'export' | 'paint';
   angleThreshold?: number;
 }
 
@@ -30,6 +32,8 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
   const layersGroupRef = useRef<THREE.Group | null>(null);
   const highlightingRef = useRef<Highlighting | null>(null);
   const partSelectorRef = useRef<PartSelector>(new PartSelector());
+  const spatialHashRef = useRef<SpatialHash>(new SpatialHash(0.1));
+  const brushThrottleRef = useRef<BrushThrottle>(new BrushThrottle());
   const animFrameRef = useRef<number>(0);
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
   const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
@@ -123,14 +127,23 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     };
     animate();
 
+    let resizeTimeout: number | null = null;
+    
     const handleResize = () => {
-      if (!container) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      if (w === 0 || h === 0) return;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+      // Debounce resize to prevent ResizeObserver loop
+      if (resizeTimeout) {
+        cancelAnimationFrame(resizeTimeout);
+      }
+      
+      resizeTimeout = requestAnimationFrame(() => {
+        if (!container) return;
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        if (w === 0 || h === 0) return;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+      });
     };
 
     const resizeObserver = new ResizeObserver(handleResize);
@@ -138,6 +151,9 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
 
     return () => {
       resizeObserver.disconnect();
+      if (resizeTimeout) {
+        cancelAnimationFrame(resizeTimeout);
+      }
       cancelAnimationFrame(animFrameRef.current);
       controls.dispose();
       renderer.dispose();
@@ -150,17 +166,24 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     };
   }, []);
 
-  // Click-to-select
+  // Click-to-select and painting
   useEffect(() => {
     const container = containerRef.current;
     const renderer = rendererRef.current;
     if (!container || !renderer) return;
 
     const canvas = renderer.domElement;
+    let isPainting = false;
 
     const handleMouseDown = (e: MouseEvent) => {
       isDraggingRef.current = false;
       mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+      
+      // Start painting if in paint mode
+      if (uiMode === 'paint') {
+        isPainting = true;
+        handlePaint(e);
+      }
     };
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -169,10 +192,62 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
         isDraggingRef.current = true;
       }
+      
+      // Continue painting while dragging
+      if (isPainting && uiMode === 'paint') {
+        handlePaint(e);
+      }
+    };
+
+    const handleMouseUp = () => {
+      isPainting = false;
+    };
+
+    const handlePaint = (e: MouseEvent) => {
+      const camera = cameraRef.current;
+      if (!camera || !state.geometry) return;
+
+      const rect = canvas.getBoundingClientRect();
+      mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycasterRef.current.setFromCamera(mouseRef.current, camera);
+
+      const mainMesh = modelGroupRef.current?.children[0] as THREE.Mesh | undefined;
+      if (!mainMesh || !mainMesh.isMesh) return;
+
+      const intersects = raycasterRef.current.intersectObject(mainMesh, false);
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        if (hit.faceIndex !== undefined && hit.faceIndex !== null) {
+          const triangleIndex = hit.faceIndex;
+          
+          // Track last clicked triangle for flood fill
+          dispatch({ type: 'SET_LAST_CLICKED_TRIANGLE', payload: triangleIndex });
+          
+          // Use SpatialHash for fast brush selection (O(1) lookup)
+          const brushSize = state.brushSize;
+          const hitPoint = hit.point;
+          
+          // Calculate radius based on brush size (approximate)
+          // For large models, we use a spatial radius instead of topological distance
+          const radius = Math.sqrt(brushSize) * 0.05; // Adjust multiplier as needed
+          
+          const trianglesToPaint = spatialHashRef.current.getTrianglesInRadius(hitPoint, radius);
+          
+          // Use throttle for smooth performance
+          if (state.paintMode === 'add') {
+            brushThrottleRef.current.addTriangles(trianglesToPaint);
+          } else {
+            brushThrottleRef.current.removeTriangles(trianglesToPaint);
+          }
+        }
+      }
     };
 
     const handleClick = (e: MouseEvent) => {
-      if (isDraggingRef.current) return;
+      if (isDraggingRef.current || uiMode === 'paint') return;
 
       const camera = cameraRef.current;
       if (!camera) return;
@@ -183,15 +258,12 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
 
       raycasterRef.current.setFromCamera(mouseRef.current, camera);
 
-      // CRITICAL FIX: Raycast against the main mesh directly, not the group
-      // The main mesh is the merged geometry with proper indexing
       const mainMesh = modelGroupRef.current?.children[0] as THREE.Mesh | undefined;
       if (!mainMesh || !mainMesh.isMesh) {
         console.warn('No main mesh found for raycasting');
         return;
       }
 
-      // Ensure the mesh has an index for proper triangle picking
       if (!mainMesh.geometry.index) {
         console.warn('Main mesh geometry has no index - raycasting may not work correctly');
       }
@@ -200,25 +272,16 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
 
       if (intersects.length > 0) {
         const hit = intersects[0];
-        
-        // faceIndex is the triangle index for indexed geometry
+
         if (hit.faceIndex !== undefined && hit.faceIndex !== null) {
           const triangleIndex = hit.faceIndex;
-          
-          // Check UI mode to determine selection behavior
-          if (uiMode === 'part') {
-            // Part selection mode - use flood fill with angle threshold
-            const selectedTriangles = partSelectorRef.current.selectPart(triangleIndex, angleThreshold);
-            dispatch({ type: 'SET_SELECTED_TRIANGLES', payload: selectedTriangles });
-          } else {
-            // Color selection mode - find color group
-            if (colorGrouper) {
-              const groupIndex = colorGrouper.findGroupIndexByTriangle(triangleIndex);
-              if (groupIndex !== null) {
-                dispatch({ type: 'SELECT_COLOR', payload: groupIndex });
-              } else {
-                console.warn(`Triangle ${triangleIndex} not found in any color group`);
-              }
+
+          if (colorGrouper) {
+            const groupIndex = colorGrouper.findGroupIndexByTriangle(triangleIndex);
+            if (groupIndex !== null) {
+              dispatch({ type: 'SELECT_COLOR', payload: groupIndex });
+            } else {
+              console.warn(`Triangle ${triangleIndex} not found in any color group`);
             }
           }
         }
@@ -227,41 +290,55 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
 
     canvas.addEventListener('mousedown', handleMouseDown);
     canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mouseup', handleMouseUp);
     canvas.addEventListener('click', handleClick);
 
     return () => {
       canvas.removeEventListener('mousedown', handleMouseDown);
       canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('click', handleClick);
     };
-  }, [colorGrouper, dispatch]);
-
-  // Build adjacency graph when geometry loads
+  }, [colorGrouper, dispatch, uiMode, state.brushSize, state.paintMode, state.geometry]);
+  // Build adjacency graph and spatial hash when geometry loads
   useEffect(() => {
     if (state.geometry) {
       partSelectorRef.current.buildAdjacency(state.geometry);
+      spatialHashRef.current.build(state.geometry);
+      
+      // Set up brush throttle callback
+      brushThrottleRef.current.setCallback((triangles: number[]) => {
+        triangles.forEach(triIdx => {
+          if (state.paintMode === 'add') {
+            dispatch({ type: 'ADD_PAINTED_TRIANGLE', payload: triIdx });
+          } else {
+            dispatch({ type: 'REMOVE_PAINTED_TRIANGLE', payload: triIdx });
+          }
+        });
+      });
     }
-  }, [state.geometry]);
+  }, [state.geometry, state.paintMode, dispatch]);
 
-  // Highlight selected triangles in part mode
+  // Highlight painted triangles in paint mode
   useEffect(() => {
     const scene = sceneRef.current;
     const highlighting = highlightingRef.current;
     if (!scene || !highlighting || !state.geometry) return;
 
-    if (uiMode === 'part' && state.selectedTriangles.length > 0) {
-      // Create a temporary color group for highlighting
+    if (uiMode === 'paint' && state.paintedTriangles.size > 0) {
+      // Highlight painted triangles
+      const paintedArray = Array.from(state.paintedTriangles);
       const tempGroup = {
-        color: '#4A7AFF',
-        colorObj: new THREE.Color(0x4A7AFF),
-        triangleIndices: state.selectedTriangles,
-        triangleCount: state.selectedTriangles.length,
-        r: 0.29,
-        g: 0.48,
-        b: 1.0,
+        color: state.paintMode === 'add' ? '#FF6B6B' : '#4ECDC4',
+        colorObj: new THREE.Color(state.paintMode === 'add' ? 0xFF6B6B : 0x4ECDC4),
+        triangleIndices: paintedArray,
+        triangleCount: paintedArray.length,
+        r: state.paintMode === 'add' ? 1.0 : 0.31,
+        g: state.paintMode === 'add' ? 0.42 : 0.80,
+        b: state.paintMode === 'add' ? 0.42 : 0.77,
       };
       highlighting.highlightTriangles(state.geometry, tempGroup, false);
-      
+
       // Apply transform to match the model
       const posAttr = state.geometry.getAttribute('position');
       const box = new THREE.Box3().setFromBufferAttribute(posAttr as THREE.BufferAttribute);
@@ -269,15 +346,14 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
       const size = box.getSize(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z);
       const scale = maxDim > 0 ? 4 / maxDim : 1;
-      
+
       const hlGroup = highlighting.getGroup();
       hlGroup.scale.setScalar(scale);
       hlGroup.position.copy(center.clone().multiplyScalar(-scale));
-    } else if (uiMode !== 'part' || state.selectedTriangles.length === 0) {
+    } else {
       highlighting.clearHighlight();
     }
-  }, [state.selectedTriangles, uiMode, state.geometry]);
-
+  }, [state.selectedTriangles, state.paintedTriangles, uiMode, state.geometry, state.paintMode]);
   // Update main model when geometry or selection changes
   const updateModel = useCallback(() => {
     const scene = sceneRef.current;
@@ -371,7 +447,7 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     updateModel();
   }, [updateModel]);
 
-  // Update layers in scene
+  // Update layers in scene with explode view
   useEffect(() => {
     const scene = sceneRef.current;
     const layersGroup = layersGroupRef.current;
@@ -404,12 +480,13 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
       const maxDim = Math.max(size.x, size.y, size.z);
       const scale = maxDim > 0 ? 4 / maxDim : 1;
 
-      for (const layer of state.layers) {
+      for (let i = 0; i < state.layers.length; i++) {
+        const layer = state.layers[i];
         if (!layer.visible || !layer.geometry) continue;
 
         // Use colorGroup color if available, otherwise generate a color from layer index
         const layerColor = layer.colorGroup?.colorObj || new THREE.Color().setHSL(
-          (state.layers.indexOf(layer) * 0.618) % 1, // Golden ratio for nice color distribution
+          (i * 0.618) % 1, // Golden ratio for nice color distribution
           0.7,
           0.5
         );
@@ -429,12 +506,125 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
 
         const mesh = new THREE.Mesh(layer.geometry.clone(), material);
         mesh.scale.setScalar(scale);
-        mesh.position.copy(center.clone().multiplyScalar(-scale));
+        
+        // Calculate base position
+        const basePosition = center.clone().multiplyScalar(-scale);
+        
+        // Apply explode offset if enabled
+        if (state.explodeView && layer.explodeOffset) {
+          basePosition.add(layer.explodeOffset.clone().multiplyScalar(state.explodeDistance));
+        } else if (state.explodeView) {
+          // Auto-calculate explode direction from layer center
+          const layerBox = new THREE.Box3().setFromBufferAttribute(
+            layer.geometry.getAttribute('position') as THREE.BufferAttribute
+          );
+          const layerCenter = layerBox.getCenter(new THREE.Vector3());
+          const direction = layerCenter.sub(center).normalize();
+          basePosition.add(direction.multiplyScalar(state.explodeDistance * scale));
+        }
+        
+        mesh.position.copy(basePosition);
         mesh.castShadow = true;
         layersGroup.add(mesh);
       }
     }
-  }, [state.layers, state.geometry, state.selectedLayerId]);
+  }, [state.layers, state.geometry, state.selectedLayerId, state.explodeView, state.explodeDistance]);
+
+  // Render connectors
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    // Remove existing connectors
+    const connectorsToRemove: THREE.Object3D[] = [];
+    scene.traverse((child) => {
+      if (child.name.startsWith('connector-')) {
+        connectorsToRemove.push(child);
+      }
+    });
+    connectorsToRemove.forEach(obj => {
+      scene.remove(obj);
+      if ((obj as THREE.Mesh).isMesh) {
+        const mesh = obj as THREE.Mesh;
+        mesh.geometry.dispose();
+        (mesh.material as THREE.Material).dispose();
+      }
+    });
+
+    // Add connectors
+    if (state.connectors.length > 0 && state.geometry) {
+      const posAttr = state.geometry.getAttribute('position');
+      const box = new THREE.Box3().setFromBufferAttribute(posAttr as THREE.BufferAttribute);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = maxDim > 0 ? 4 / maxDim : 1;
+
+      for (const connector of state.connectors) {
+        const fromLayer = state.layers.find(l => l.id === connector.fromLayerId);
+        const toLayer = state.layers.find(l => l.id === connector.toLayerId);
+
+        if (!fromLayer || !toLayer) continue;
+
+        // Calculate connector positions with explode offsets
+        let fromPoint = connector.fromPoint.clone().multiplyScalar(scale).add(center.clone().multiplyScalar(-scale));
+        let toPoint = connector.toPoint.clone().multiplyScalar(scale).add(center.clone().multiplyScalar(-scale));
+
+        if (state.explodeView) {
+          if (fromLayer.explodeOffset) {
+            fromPoint.add(fromLayer.explodeOffset.clone().multiplyScalar(state.explodeDistance));
+          } else {
+            const fromBox = new THREE.Box3().setFromBufferAttribute(
+              fromLayer.geometry!.getAttribute('position') as THREE.BufferAttribute
+            );
+            const fromCenter = fromBox.getCenter(new THREE.Vector3());
+            const fromDirection = fromCenter.sub(center).normalize();
+            fromPoint.add(fromDirection.multiplyScalar(state.explodeDistance * scale));
+          }
+
+          if (toLayer.explodeOffset) {
+            toPoint.add(toLayer.explodeOffset.clone().multiplyScalar(state.explodeDistance));
+          } else {
+            const toBox = new THREE.Box3().setFromBufferAttribute(
+              toLayer.geometry!.getAttribute('position') as THREE.BufferAttribute
+            );
+            const toCenter = toBox.getCenter(new THREE.Vector3());
+            const toDirection = toCenter.sub(center).normalize();
+            toPoint.add(toDirection.multiplyScalar(state.explodeDistance * scale));
+          }
+        }
+
+        // Create cylinder connector
+        const direction = toPoint.clone().sub(fromPoint);
+        const length = direction.length();
+        const midpoint = fromPoint.clone().add(toPoint).multiplyScalar(0.5);
+
+        const cylinderGeometry = new THREE.CylinderGeometry(
+          connector.radius * scale,
+          connector.radius * scale,
+          length,
+          16
+        );
+        const cylinderMaterial = new THREE.MeshStandardMaterial({
+          color: connector.color,
+          metalness: 0.3,
+          roughness: 0.6,
+        });
+
+        const cylinder = new THREE.Mesh(cylinderGeometry, cylinderMaterial);
+        cylinder.position.copy(midpoint);
+        cylinder.name = `connector-${connector.id}`;
+
+        // Rotate cylinder to align with direction
+        const axis = new THREE.Vector3(0, 1, 0);
+        const quaternion = new THREE.Quaternion().setFromUnitVectors(axis, direction.normalize());
+        cylinder.setRotationFromQuaternion(quaternion);
+
+        cylinder.castShadow = true;
+        scene.add(cylinder);
+      }
+    }
+  }, [state.connectors, state.layers, state.geometry, state.explodeView, state.explodeDistance]);
 
   return (
     <div

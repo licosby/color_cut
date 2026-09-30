@@ -1,12 +1,18 @@
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import { AppProvider, useAppState } from './state/UIState';
 import { TopBar } from './ui/TopBar';
 import { LeftPanel } from './ui/LeftPanel';
 import { ColorPanel } from './ui/ColorPanel';
 import { LayersPanel } from './ui/LayersPanel';
+import { PaintPanel } from './ui/PaintPanel';
+import { TransformPanel } from './ui/TransformPanel';
+import { ExplodePanel } from './ui/ExplodePanel';
+import { ConnectorPanel } from './ui/ConnectorPanel';
 import { Onboarding } from './ui/Onboarding';
+import { DragDrop } from './ui/DragDrop';
 import { Viewer, ViewerAPI } from './viewer/Viewer';
 import { ColorGrouper } from './geometry/ColorGrouper';
+import { projectManager } from './state/ProjectManager';
 
 /**
  * AppContent - Main application layout
@@ -17,6 +23,7 @@ function AppContent() {
   const { state, dispatch } = useAppState();
   const prevQuantizeRef = useRef(state.quantizeLevel);
   const viewerRef = useRef<ViewerAPI>(null);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   
   const colorGrouper = useMemo(() => new ColorGrouper(), []);
 
@@ -40,8 +47,48 @@ function AppContent() {
     }
   };
 
+  // Auto-save functionality
+  useEffect(() => {
+    const getState = () => ({
+      paintedTriangles: Array.from(state.paintedTriangles),
+      layers: state.layers,
+      connectors: state.connectors,
+      fileName: state.fileName,
+    });
+
+    projectManager.startAutoSave(getState);
+
+    return () => {
+      projectManager.stopAutoSave();
+    };
+  }, [state.paintedTriangles, state.layers, state.connectors, state.fileName]);
+
+  // Check for saved project on mount
+  useEffect(() => {
+    const savedProject = projectManager.load();
+    if (savedProject && savedProject.paintedTriangles.length > 0) {
+      const timeSinceSave = projectManager.getTimeSinceLastSave();
+      if (timeSinceSave && timeSinceSave < 86400000) { // Less than 24 hours
+        // Show resume option
+        const shouldResume = confirm(
+          `Found unsaved work from ${Math.round(timeSinceSave / 60000)} minutes ago. Resume?`
+        );
+        if (shouldResume) {
+          savedProject.paintedTriangles.forEach(tri => {
+            dispatch({ type: 'ADD_PAINTED_TRIANGLE', payload: tri });
+          });
+        } else {
+          projectManager.clear();
+        }
+      }
+    }
+  }, [dispatch]);
+
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-100 text-gray-800 overflow-hidden">
+      {/* Drag and Drop Overlay */}
+      <DragDrop colorGrouper={colorGrouper} />
+
       {/* Onboarding Wizard */}
       <Onboarding />
 
@@ -151,17 +198,55 @@ function AppContent() {
           </div>
         </div>
 
-        {/* Right Side - Color Palette + Layers */}
-        <div className="w-80 flex-shrink-0 bg-white border-l border-gray-200 overflow-y-auto shadow-sm flex flex-col">
-          {/* Color Palette (top half) */}
-          <div className="flex-1 border-b border-gray-200 overflow-y-auto">
-            <ColorPanel />
-          </div>
+        {/* Right Side - Color Palette/Paint Tools + Layers + Explode/Connectors */}
+        <div className={`${rightPanelCollapsed ? 'w-12' : 'w-80'} flex-shrink-0 bg-white border-l border-gray-200 shadow-sm flex flex-col transition-all duration-300 relative`}>
+          {/* Collapse Toggle Button */}
+          <button
+            onClick={() => setRightPanelCollapsed(!rightPanelCollapsed)}
+            className="absolute top-2 left-2 z-10 w-8 h-8 bg-white hover:bg-gray-100 border border-gray-300 rounded-lg flex items-center justify-center shadow-sm transition-all"
+            title={rightPanelCollapsed ? 'Expand panel' : 'Collapse panel'}
+          >
+            <svg 
+              className={`w-4 h-4 text-gray-600 transition-transform ${rightPanelCollapsed ? 'rotate-180' : ''}`}
+              fill="none" 
+              viewBox="0 0 24 24" 
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
 
-          {/* Layers Panel (bottom half) */}
-          <div className="flex-1 overflow-y-auto bg-gray-50">
-            <LayersPanel />
-          </div>
+          {/* Panel Content - Only show when not collapsed */}
+          {!rightPanelCollapsed && (
+            <div className="flex flex-col h-full overflow-y-auto">
+              {/* Color Palette or Paint Tools (top section) */}
+              <div className="border-b border-gray-200 overflow-y-auto max-h-[40%]">
+                {state.uiMode === 'paint' ? <PaintPanel /> : <ColorPanel />}
+              </div>
+
+              {/* Layers Panel */}
+              <div className="border-b border-gray-200 overflow-y-auto max-h-[30%] bg-gray-50">
+                <LayersPanel />
+              </div>
+
+              {/* Transform Panel */}
+              {state.geometry && (
+                <div className="border-b border-gray-200 overflow-y-auto max-h-[30%]">
+                  <TransformPanel />
+                </div>
+              )}
+
+              {/* Explode and Connectors (bottom section, only show when layers exist) */}
+              {state.layers.length > 0 && (
+                <div className="flex-1 overflow-y-auto">
+                  <ExplodePanel />
+                  <div className="border-t border-gray-200">
+                    <ConnectorPanel />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

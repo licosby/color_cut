@@ -19,10 +19,10 @@ export function LeftPanel() {
       description: 'Click colors to select',
     },
     {
-      mode: 'part',
-      icon: '🧩',
-      label: 'Part',
-      description: 'Click to select connected parts',
+      mode: 'paint',
+      icon: '🖌️',
+      label: 'Paint',
+      description: 'Paint to select areas manually',
     },
     {
       mode: 'highlight',
@@ -80,7 +80,7 @@ export function LeftPanel() {
       <div className="text-center px-2 mt-2">
         <p className="text-[10px] text-gray-400 leading-tight">
           {state.uiMode === 'select' && 'Select colors from the palette'}
-          {state.uiMode === 'part' && 'Click on model to select connected parts'}
+          {state.uiMode === 'paint' && 'Click and drag to paint areas'}
           {state.uiMode === 'highlight' && 'Highlight selected color in viewer'}
           {state.uiMode === 'export' && 'Export colors as separate STL files'}
         </p>
