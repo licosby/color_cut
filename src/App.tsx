@@ -4,6 +4,9 @@ import { TopBar } from './ui/TopBar';
 import { LeftPanel } from './ui/LeftPanel';
 import { ColorPanel } from './ui/ColorPanel';
 import { LayersPanel } from './ui/LayersPanel';
+import { PaintPanel } from './ui/PaintPanel';
+import { ExplodePanel } from './ui/ExplodePanel';
+import { ConnectorPanel } from './ui/ConnectorPanel';
 import { Onboarding } from './ui/Onboarding';
 import { Viewer, ViewerAPI } from './viewer/Viewer';
 import { ColorGrouper } from './geometry/ColorGrouper';
@@ -151,17 +154,27 @@ function AppContent() {
           </div>
         </div>
 
-        {/* Right Side - Color Palette + Layers */}
+        {/* Right Side - Color Palette/Paint Tools + Layers + Explode/Connectors */}
         <div className="w-80 flex-shrink-0 bg-white border-l border-gray-200 overflow-y-auto shadow-sm flex flex-col">
-          {/* Color Palette (top half) */}
-          <div className="flex-1 border-b border-gray-200 overflow-y-auto">
-            <ColorPanel />
+          {/* Color Palette or Paint Tools (top section) */}
+          <div className="border-b border-gray-200 overflow-y-auto max-h-[40%]">
+            {state.uiMode === 'paint' ? <PaintPanel /> : <ColorPanel />}
           </div>
 
-          {/* Layers Panel (bottom half) */}
-          <div className="flex-1 overflow-y-auto bg-gray-50">
+          {/* Layers Panel */}
+          <div className="border-b border-gray-200 overflow-y-auto max-h-[30%] bg-gray-50">
             <LayersPanel />
           </div>
+
+          {/* Explode and Connectors (bottom section, only show when layers exist) */}
+          {state.layers.length > 0 && (
+            <div className="flex-1 overflow-y-auto">
+              <ExplodePanel />
+              <div className="border-t border-gray-200">
+                <ConnectorPanel />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
