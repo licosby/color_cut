@@ -127,14 +127,23 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     };
     animate();
 
+    let resizeTimeout: number | null = null;
+    
     const handleResize = () => {
-      if (!container) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      if (w === 0 || h === 0) return;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+      // Debounce resize to prevent ResizeObserver loop
+      if (resizeTimeout) {
+        cancelAnimationFrame(resizeTimeout);
+      }
+      
+      resizeTimeout = requestAnimationFrame(() => {
+        if (!container) return;
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        if (w === 0 || h === 0) return;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+      });
     };
 
     const resizeObserver = new ResizeObserver(handleResize);
@@ -142,6 +151,9 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
 
     return () => {
       resizeObserver.disconnect();
+      if (resizeTimeout) {
+        cancelAnimationFrame(resizeTimeout);
+      }
       cancelAnimationFrame(animFrameRef.current);
       controls.dispose();
       renderer.dispose();
