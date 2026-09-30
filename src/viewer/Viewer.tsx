@@ -207,6 +207,9 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
         if (hit.faceIndex !== undefined && hit.faceIndex !== null) {
           const triangleIndex = hit.faceIndex;
           
+          // Track last clicked triangle for flood fill
+          dispatch({ type: 'SET_LAST_CLICKED_TRIANGLE', payload: triangleIndex });
+          
           // Paint with brush size (paint multiple triangles around the hit)
           const brushSize = state.brushSize;
           const trianglesToPaint = getNearbyTriangles(triangleIndex, brushSize);

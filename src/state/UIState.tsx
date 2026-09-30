@@ -41,6 +41,7 @@ export interface AppState {
   paintedTriangles: Set<number>;
   brushSize: number;
   paintMode: 'add' | 'remove';
+  lastClickedTriangle: number | null;
 
   // Layers system
   layers: Layer[];
@@ -72,6 +73,7 @@ const initialState: AppState = {
   paintedTriangles: new Set<number>(),
   brushSize: 5,
   paintMode: 'add',
+  lastClickedTriangle: null,
   layers: [],
   selectedLayerId: null,
   explodeView: false,
@@ -106,6 +108,7 @@ type Action =
   | { type: 'CLEAR_PAINTED_TRIANGLES' }
   | { type: 'SET_BRUSH_SIZE'; payload: number }
   | { type: 'SET_PAINT_MODE'; payload: 'add' | 'remove' }
+  | { type: 'SET_LAST_CLICKED_TRIANGLE'; payload: number | null }
   | { type: 'TOGGLE_EXPLODE_VIEW' }
   | { type: 'SET_EXPLODE_DISTANCE'; payload: number }
   | { type: 'ADD_CONNECTOR'; payload: Connector }
@@ -185,6 +188,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, brushSize: action.payload };
     case 'SET_PAINT_MODE':
       return { ...state, paintMode: action.payload };
+    case 'SET_LAST_CLICKED_TRIANGLE':
+      return { ...state, lastClickedTriangle: action.payload };
     case 'TOGGLE_EXPLODE_VIEW':
       return { ...state, explodeView: !state.explodeView };
     case 'SET_EXPLODE_DISTANCE':

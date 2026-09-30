@@ -1,4 +1,5 @@
 import { useAppState } from '../state/UIState';
+import { PartSelector } from '../geometry/PartSelector';
 
 /**
  * PaintPanel - Controls for manual triangle painting/masking
@@ -6,6 +7,14 @@ import { useAppState } from '../state/UIState';
  */
 export function PaintPanel() {
   const { state, dispatch } = useAppState();
+  
+  // Create a PartSelector instance for flood fill
+  const partSelector = new PartSelector();
+  
+  // Build adjacency when geometry changes
+  if (state.geometry && !partSelector.isReady()) {
+    partSelector.buildAdjacency(state.geometry);
+  }
 
   const handleBrushSizeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     dispatch({ type: 'SET_BRUSH_SIZE', payload: parseInt(e.target.value) });
@@ -19,6 +28,46 @@ export function PaintPanel() {
     if (confirm('Clear all painted triangles?')) {
       dispatch({ type: 'CLEAR_PAINTED_TRIANGLES' });
     }
+  };
+
+  const handleSelectAll = () => {
+    // Select all triangles in the model
+    if (!state.geometry) {
+      alert('No model loaded');
+      return;
+    }
+
+    const index = state.geometry.index;
+    const positions = state.geometry.getAttribute('position');
+    const totalTriangles = index
+      ? Math.floor(index.count / 3)
+      : Math.floor(positions.count / 3);
+
+    // Add all triangles to painted set
+    for (let i = 0; i < totalTriangles; i++) {
+      dispatch({ type: 'ADD_PAINTED_TRIANGLE', payload: i });
+    }
+  };
+
+  const handleFloodFillConnected = () => {
+    // Flood fill from last clicked triangle to select entire connected region
+    if (state.lastClickedTriangle === null) {
+      alert('Click on the model first to select a starting point for flood fill');
+      return;
+    }
+
+    if (!state.geometry) {
+      alert('No model loaded');
+      return;
+    }
+
+    // Use PartSelector to flood fill from the clicked triangle
+    // Use a high angle threshold (90 degrees) to select the entire connected region
+    const trianglesToPaint = partSelector.selectPart(state.lastClickedTriangle, 90);
+    
+    trianglesToPaint.forEach(triIdx => {
+      dispatch({ type: 'ADD_PAINTED_TRIANGLE', payload: triIdx });
+    });
   };
 
   const handleSeparatePainted = () => {
@@ -81,17 +130,78 @@ export function PaintPanel() {
             {state.brushSize}
           </span>
         </label>
+        
+        {/* Quick Size Presets */}
+        <div className="grid grid-cols-5 gap-1.5 mb-3">
+          <button
+            onClick={() => dispatch({ type: 'SET_BRUSH_SIZE', payload: 1 })}
+            className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all ${
+              state.brushSize === 1
+                ? 'bg-purple-500 text-white shadow-sm'
+                : 'bg-white text-gray-600 hover:bg-purple-100 border border-purple-200'
+            }`}
+            title="Single triangle"
+          >
+            1
+          </button>
+          <button
+            onClick={() => dispatch({ type: 'SET_BRUSH_SIZE', payload: 10 })}
+            className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all ${
+              state.brushSize === 10
+                ? 'bg-purple-500 text-white shadow-sm'
+                : 'bg-white text-gray-600 hover:bg-purple-100 border border-purple-200'
+            }`}
+            title="Small area"
+          >
+            10
+          </button>
+          <button
+            onClick={() => dispatch({ type: 'SET_BRUSH_SIZE', payload: 50 })}
+            className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all ${
+              state.brushSize === 50
+                ? 'bg-purple-500 text-white shadow-sm'
+                : 'bg-white text-gray-600 hover:bg-purple-100 border border-purple-200'
+            }`}
+            title="Medium area"
+          >
+            50
+          </button>
+          <button
+            onClick={() => dispatch({ type: 'SET_BRUSH_SIZE', payload: 200 })}
+            className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all ${
+              state.brushSize === 200
+                ? 'bg-purple-500 text-white shadow-sm'
+                : 'bg-white text-gray-600 hover:bg-purple-100 border border-purple-200'
+            }`}
+            title="Large area"
+          >
+            200
+          </button>
+          <button
+            onClick={() => dispatch({ type: 'SET_BRUSH_SIZE', payload: 1000 })}
+            className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all ${
+              state.brushSize === 1000
+                ? 'bg-purple-500 text-white shadow-sm'
+                : 'bg-white text-gray-600 hover:bg-purple-100 border border-purple-200'
+            }`}
+            title="Huge area"
+          >
+            1K
+          </button>
+        </div>
+        
         <input
           type="range"
           min="1"
-          max="20"
+          max="1000"
+          step="1"
           value={state.brushSize}
           onChange={handleBrushSizeChange}
           className="w-full h-2 bg-gray-200 rounded-full appearance-none cursor-pointer"
         />
         <div className="flex justify-between mt-2">
-          <span className="text-[10px] text-gray-400 font-medium">Fine</span>
-          <span className="text-[10px] text-gray-400 font-medium">Broad</span>
+          <span className="text-[10px] text-gray-400 font-medium">1 triangle</span>
+          <span className="text-[10px] text-gray-400 font-medium">1000 triangles</span>
         </div>
       </div>
 
@@ -109,6 +219,37 @@ export function PaintPanel() {
 
       {/* Action Buttons */}
       <div className="space-y-2">
+        <button
+          onClick={handleFloodFillConnected}
+          disabled={state.lastClickedTriangle === null}
+          className={`w-full py-2.5 px-4 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+            state.lastClickedTriangle !== null
+              ? 'bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white shadow-md hover:shadow-lg'
+              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+          }`}
+          title="Click on the model first, then use this to select the entire connected region"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          Flood Fill Connected Region
+        </button>
+
+        <button
+          onClick={handleSelectAll}
+          disabled={!state.geometry}
+          className={`w-full py-2.5 px-4 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+            state.geometry
+              ? 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white shadow-md hover:shadow-lg'
+              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Select All Triangles
+        </button>
+
         <button
           onClick={handleSeparatePainted}
           disabled={state.paintedTriangles.size === 0}
