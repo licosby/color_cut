@@ -9,8 +9,10 @@ import { TransformPanel } from './ui/TransformPanel';
 import { ExplodePanel } from './ui/ExplodePanel';
 import { ConnectorPanel } from './ui/ConnectorPanel';
 import { Onboarding } from './ui/Onboarding';
+import { DragDrop } from './ui/DragDrop';
 import { Viewer, ViewerAPI } from './viewer/Viewer';
 import { ColorGrouper } from './geometry/ColorGrouper';
+import { projectManager } from './state/ProjectManager';
 
 /**
  * AppContent - Main application layout
@@ -44,8 +46,48 @@ function AppContent() {
     }
   };
 
+  // Auto-save functionality
+  useEffect(() => {
+    const getState = () => ({
+      paintedTriangles: Array.from(state.paintedTriangles),
+      layers: state.layers,
+      connectors: state.connectors,
+      fileName: state.fileName,
+    });
+
+    projectManager.startAutoSave(getState);
+
+    return () => {
+      projectManager.stopAutoSave();
+    };
+  }, [state.paintedTriangles, state.layers, state.connectors, state.fileName]);
+
+  // Check for saved project on mount
+  useEffect(() => {
+    const savedProject = projectManager.load();
+    if (savedProject && savedProject.paintedTriangles.length > 0) {
+      const timeSinceSave = projectManager.getTimeSinceLastSave();
+      if (timeSinceSave && timeSinceSave < 86400000) { // Less than 24 hours
+        // Show resume option
+        const shouldResume = confirm(
+          `Found unsaved work from ${Math.round(timeSinceSave / 60000)} minutes ago. Resume?`
+        );
+        if (shouldResume) {
+          savedProject.paintedTriangles.forEach(tri => {
+            dispatch({ type: 'ADD_PAINTED_TRIANGLE', payload: tri });
+          });
+        } else {
+          projectManager.clear();
+        }
+      }
+    }
+  }, [dispatch]);
+
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-100 text-gray-800 overflow-hidden">
+      {/* Drag and Drop Overlay */}
+      <DragDrop colorGrouper={colorGrouper} />
+
       {/* Onboarding Wizard */}
       <Onboarding />
 

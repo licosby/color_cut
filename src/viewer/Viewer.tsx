@@ -5,6 +5,8 @@ import { useAppState, Layer } from '../state/UIState';
 import { Highlighting } from './Highlighting';
 import { ColorGrouper } from '../geometry/ColorGrouper';
 import { PartSelector } from '../geometry/PartSelector';
+import { SpatialHash } from '../geometry/SpatialHash';
+import { BrushThrottle } from '../geometry/BrushThrottle';
 
 export interface ViewerAPI {
   resetCamera: () => void;
@@ -30,6 +32,8 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
   const layersGroupRef = useRef<THREE.Group | null>(null);
   const highlightingRef = useRef<Highlighting | null>(null);
   const partSelectorRef = useRef<PartSelector>(new PartSelector());
+  const spatialHashRef = useRef<SpatialHash>(new SpatialHash(0.1));
+  const brushThrottleRef = useRef<BrushThrottle>(new BrushThrottle());
   const animFrameRef = useRef<number>(0);
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
   const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
@@ -210,46 +214,24 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
           // Track last clicked triangle for flood fill
           dispatch({ type: 'SET_LAST_CLICKED_TRIANGLE', payload: triangleIndex });
           
-          // Paint with brush size (paint multiple triangles around the hit)
+          // Use SpatialHash for fast brush selection (O(1) lookup)
           const brushSize = state.brushSize;
-          const trianglesToPaint = getNearbyTriangles(triangleIndex, brushSize);
+          const hitPoint = hit.point;
           
-          trianglesToPaint.forEach(triIdx => {
-            if (state.paintMode === 'add') {
-              dispatch({ type: 'ADD_PAINTED_TRIANGLE', payload: triIdx });
-            } else {
-              dispatch({ type: 'REMOVE_PAINTED_TRIANGLE', payload: triIdx });
-            }
-          });
-        }
-      }
-    };
-
-    const getNearbyTriangles = (startTriangle: number, radius: number): number[] => {
-      // Simple implementation: get triangles within radius using adjacency
-      const result = new Set<number>();
-      const queue: Array<{ tri: number; dist: number }> = [{ tri: startTriangle, dist: 0 }];
-      const visited = new Set<number>();
-      
-      while (queue.length > 0) {
-        const { tri, dist } = queue.shift()!;
-        if (visited.has(tri)) continue;
-        visited.add(tri);
-        
-        if (dist <= radius) {
-          result.add(tri);
+          // Calculate radius based on brush size (approximate)
+          // For large models, we use a spatial radius instead of topological distance
+          const radius = Math.sqrt(brushSize) * 0.05; // Adjust multiplier as needed
           
-          // Get neighbors from adjacency map
-          const neighbors = partSelectorRef.current['adjacencyMap'].get(tri) || [];
-          for (const neighbor of neighbors) {
-            if (!visited.has(neighbor)) {
-              queue.push({ tri: neighbor, dist: dist + 1 });
-            }
+          const trianglesToPaint = spatialHashRef.current.getTrianglesInRadius(hitPoint, radius);
+          
+          // Use throttle for smooth performance
+          if (state.paintMode === 'add') {
+            brushThrottleRef.current.addTriangles(trianglesToPaint);
+          } else {
+            brushThrottleRef.current.removeTriangles(trianglesToPaint);
           }
         }
       }
-      
-      return Array.from(result);
     };
 
     const handleClick = (e: MouseEvent) => {
@@ -311,12 +293,24 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
       canvas.removeEventListener('click', handleClick);
     };
   }, [colorGrouper, dispatch, uiMode, state.brushSize, state.paintMode, state.geometry]);
-  // Build adjacency graph when geometry loads
+  // Build adjacency graph and spatial hash when geometry loads
   useEffect(() => {
     if (state.geometry) {
       partSelectorRef.current.buildAdjacency(state.geometry);
+      spatialHashRef.current.build(state.geometry);
+      
+      // Set up brush throttle callback
+      brushThrottleRef.current.setCallback((triangles: number[]) => {
+        triangles.forEach(triIdx => {
+          if (state.paintMode === 'add') {
+            dispatch({ type: 'ADD_PAINTED_TRIANGLE', payload: triIdx });
+          } else {
+            dispatch({ type: 'REMOVE_PAINTED_TRIANGLE', payload: triIdx });
+          }
+        });
+      });
     }
-  }, [state.geometry]);
+  }, [state.geometry, state.paintMode, dispatch]);
 
   // Highlight selected triangles in part mode or painted triangles in paint mode
   useEffect(() => {

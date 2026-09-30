@@ -42,6 +42,18 @@ export interface AppState {
   brushSize: number;
   paintMode: 'add' | 'remove';
   lastClickedTriangle: number | null;
+  
+  // Undo/Redo history
+  history: Array<{
+    paintedTriangles: number[];
+    timestamp: number;
+  }>;
+  historyIndex: number;
+  maxHistorySize: number;
+  
+  // Auto-save
+  lastSavedState: string | null;
+  hasUnsavedChanges: boolean;
 
   // Layers system
   layers: Layer[];
@@ -74,6 +86,11 @@ const initialState: AppState = {
   brushSize: 5,
   paintMode: 'add',
   lastClickedTriangle: null,
+  history: [],
+  historyIndex: -1,
+  maxHistorySize: 50,
+  lastSavedState: null,
+  hasUnsavedChanges: false,
   layers: [],
   selectedLayerId: null,
   explodeView: false,
@@ -109,6 +126,12 @@ type Action =
   | { type: 'SET_BRUSH_SIZE'; payload: number }
   | { type: 'SET_PAINT_MODE'; payload: 'add' | 'remove' }
   | { type: 'SET_LAST_CLICKED_TRIANGLE'; payload: number | null }
+  | { type: 'UNDO' }
+  | { type: 'REDO' }
+  | { type: 'SAVE_STATE' }
+  | { type: 'LOAD_STATE'; payload: string }
+  | { type: 'MARK_UNSAVED' }
+  | { type: 'MARK_SAVED' }
   | { type: 'TOGGLE_EXPLODE_VIEW' }
   | { type: 'SET_EXPLODE_DISTANCE'; payload: number }
   | { type: 'ADD_CONNECTOR'; payload: Connector }
@@ -192,6 +215,59 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, paintMode: action.payload };
     case 'SET_LAST_CLICKED_TRIANGLE':
       return { ...state, lastClickedTriangle: action.payload };
+    case 'UNDO':
+      if (state.historyIndex <= 0) return state;
+      const newIndex = state.historyIndex - 1;
+      const prevState = state.history[newIndex];
+      return {
+        ...state,
+        historyIndex: newIndex,
+        paintedTriangles: new Set(prevState.paintedTriangles),
+        hasUnsavedChanges: true,
+      };
+    case 'REDO':
+      if (state.historyIndex >= state.history.length - 1) return state;
+      const redoIndex = state.historyIndex + 1;
+      const nextState = state.history[redoIndex];
+      return {
+        ...state,
+        historyIndex: redoIndex,
+        paintedTriangles: new Set(nextState.paintedTriangles),
+        hasUnsavedChanges: true,
+      };
+    case 'SAVE_STATE':
+      const newHistory = state.history.slice(0, state.historyIndex + 1);
+      newHistory.push({
+        paintedTriangles: Array.from(state.paintedTriangles),
+        timestamp: Date.now(),
+      });
+      // Keep only last maxHistorySize entries
+      if (newHistory.length > state.maxHistorySize) {
+        newHistory.shift();
+      }
+      return {
+        ...state,
+        history: newHistory,
+        historyIndex: newHistory.length - 1,
+        hasUnsavedChanges: true,
+      };
+    case 'LOAD_STATE':
+      try {
+        const loaded = JSON.parse(action.payload);
+        return {
+          ...state,
+          paintedTriangles: new Set(loaded.paintedTriangles || []),
+          hasUnsavedChanges: false,
+        };
+      } catch {
+        return state;
+      }
+    case 'MARK_UNSAVED':
+      return { ...state, hasUnsavedChanges: true };
+    case 'MARK_SAVED':
+      return { ...state, hasUnsavedChanges: false, lastSavedState: JSON.stringify({
+        paintedTriangles: Array.from(state.paintedTriangles),
+      })};
     case 'TOGGLE_EXPLODE_VIEW':
       return { ...state, explodeView: !state.explodeView };
     case 'SET_EXPLODE_DISTANCE':
