@@ -1,19 +1,18 @@
 import { useEffect, useRef } from 'react';
 import { useAppState } from '../state/UIState';
-import { ExportEngine } from '../geometry/ExportEngine';
 import { useMemo } from 'react';
 
 /**
  * ColorPanel - Right properties panel showing detected colors
- * Silhouette Studio style: rounded swatches, per-color export, soft borders
+ * Silhouette Studio style: rounded swatches, soft borders
+ * Export is now handled via the Layers system
  */
 export function ColorPanel() {
   const { state, dispatch } = useAppState();
-  const exportEngine = useMemo(() => new ExportEngine(), []);
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  // Scroll selected color into view when selection changes
+  // Scroll selected color into view
   useEffect(() => {
     if (state.selectedColorIndex !== null && itemRefs.current[state.selectedColorIndex]) {
       itemRefs.current[state.selectedColorIndex]?.scrollIntoView({
@@ -31,15 +30,13 @@ export function ColorPanel() {
     }
   };
 
-  const handleExportColor = (e: React.MouseEvent, index: number) => {
-    e.stopPropagation();
-    if (!state.geometry) return;
-    const group = state.colorGroups[index];
-    exportEngine.exportSingleSTL(state.geometry, group, state.fileName);
-  };
-
   const handleClearSelection = () => {
     dispatch({ type: 'SELECT_COLOR', payload: null });
+  };
+
+  // Check if a color has already been separated into a layer
+  const isColorSeparated = (colorHex: string): boolean => {
+    return state.layers.some(l => l.colorGroup.color === colorHex);
   };
 
   if (state.colorGroups.length === 0) {
@@ -126,6 +123,10 @@ export function ColorPanel() {
               ✕
             </button>
           </div>
+          {/* Hint to use Separate button */}
+          <p className="text-[10px] text-purple-500 mt-2 text-center">
+            Click <strong>Separate</strong> in the toolbar to create a layer
+          </p>
         </div>
       )}
 
@@ -133,6 +134,7 @@ export function ColorPanel() {
       <div ref={listRef} className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
         {state.colorGroups.map((group, index) => {
           const isSelected = state.selectedColorIndex === index;
+          const separated = isColorSeparated(group.color);
           const percentage = ((group.triangleCount / totalTriangles) * 100).toFixed(1);
 
           return (
@@ -140,27 +142,38 @@ export function ColorPanel() {
               key={group.color + index}
               ref={(el) => { itemRefs.current[index] = el; }}
               className={`rounded-2xl transition-all ${
-                isSelected
+                separated
+                  ? 'bg-green-50 border-2 border-green-200 opacity-60'
+                  : isSelected
                   ? 'bg-purple-50 border-2 border-purple-400 shadow-md ring-2 ring-purple-200'
                   : 'bg-white border-2 border-gray-100 hover:border-purple-200 hover:shadow-sm'
               }`}
             >
               <button
-                onClick={() => handleColorClick(index)}
+                onClick={() => !separated && handleColorClick(index)}
+                disabled={separated}
                 className="w-full flex items-center gap-3 p-3 text-left"
               >
                 {/* Color swatch */}
                 <div
-                  className={`w-12 h-12 rounded-xl flex-shrink-0 shadow-md border-2 transition-all ${
-                    isSelected ? 'border-purple-400 scale-110' : 'border-white'
+                  className={`w-12 h-12 rounded-xl flex-shrink-0 shadow-md border-2 transition-all relative ${
+                    isSelected ? 'border-purple-400 scale-110' : separated ? 'border-green-300' : 'border-white'
                   }`}
                   style={{ backgroundColor: group.color }}
-                />
+                >
+                  {separated && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/60 rounded-xl">
+                      <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-sm font-mono font-bold text-gray-700">
+                    <span className={`text-sm font-mono font-bold ${separated ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
                       {group.color.toUpperCase()}
                     </span>
                     <span className="text-xs text-gray-400 font-semibold bg-gray-100 px-2 py-0.5 rounded-lg">
@@ -176,14 +189,19 @@ export function ColorPanel() {
                       className="h-full rounded-full transition-all duration-300"
                       style={{
                         width: `${percentage}%`,
-                        backgroundColor: group.color,
+                        backgroundColor: separated ? '#86efac' : group.color,
                       }}
                     />
                   </div>
+                  {separated && (
+                    <span className="text-[10px] text-green-600 font-medium mt-1 block">
+                      ✓ Separated into layer
+                    </span>
+                  )}
                 </div>
 
                 {/* Selection indicator */}
-                {isSelected && (
+                {isSelected && !separated && (
                   <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center flex-shrink-0">
                     <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
@@ -191,19 +209,6 @@ export function ColorPanel() {
                   </div>
                 )}
               </button>
-
-              {/* Export button row */}
-              <div className="px-3 pb-3">
-                <button
-                  onClick={(e) => handleExportColor(e, index)}
-                  className="w-full py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white text-xs font-semibold rounded-xl transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  Export This Color
-                </button>
-              </div>
             </div>
           );
         })}
@@ -215,6 +220,11 @@ export function ColorPanel() {
           <span className="font-medium">{totalTriangles.toLocaleString()} total triangles</span>
           <span className="font-medium">{state.colorGroups.length} colors</span>
         </div>
+        {state.layers.length > 0 && (
+          <div className="text-xs text-green-600 font-medium mt-1 px-1">
+            {state.layers.length} layer{state.layers.length > 1 ? 's' : ''} separated
+          </div>
+        )}
       </div>
     </div>
   );

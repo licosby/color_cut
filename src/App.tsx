@@ -3,19 +3,21 @@ import { AppProvider, useAppState } from './state/UIState';
 import { TopBar } from './ui/TopBar';
 import { LeftPanel } from './ui/LeftPanel';
 import { ColorPanel } from './ui/ColorPanel';
+import { LayersPanel } from './ui/LayersPanel';
+import { Onboarding } from './ui/Onboarding';
 import { Viewer, ViewerAPI } from './viewer/Viewer';
 import { ColorGrouper } from './geometry/ColorGrouper';
 
 /**
  * AppContent - Main application layout
  * Silhouette Studio style: top toolbar, left tools, right properties, center canvas
+ * Workflow: Load → Select Color → Separate → Export All Layers
  */
 function AppContent() {
   const { state, dispatch } = useAppState();
   const prevQuantizeRef = useRef(state.quantizeLevel);
   const viewerRef = useRef<ViewerAPI>(null);
   
-  // Shared color grouper instance for click-to-select
   const colorGrouper = useMemo(() => new ColorGrouper(), []);
 
   // Re-analyze colors when quantize level changes
@@ -40,6 +42,9 @@ function AppContent() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-100 text-gray-800 overflow-hidden">
+      {/* Onboarding Wizard */}
+      <Onboarding />
+
       {/* Top Toolbar */}
       <TopBar onResetView={handleResetView} colorGrouper={colorGrouper} />
 
@@ -91,13 +96,24 @@ function AppContent() {
                     Welcome to ColorCut 3D
                   </h2>
                   <p className="text-gray-500 text-sm mb-6 leading-relaxed px-4">
-                    Upload a 3D model to automatically detect colors and separate them into individual STL files. Click on the model to select colors!
+                    Upload a multi-colored 3D model, separate each color into its own layer, then export them all as individual STL files for multi-color printing!
                   </p>
                   <div className="flex items-center justify-center gap-3">
                     <span className="px-4 py-2 bg-white rounded-xl shadow-md border border-gray-200 text-sm font-semibold text-gray-600">STL</span>
                     <span className="px-4 py-2 bg-white rounded-xl shadow-md border border-gray-200 text-sm font-semibold text-gray-600">OBJ</span>
                     <span className="px-4 py-2 bg-white rounded-xl shadow-md border border-gray-200 text-sm font-semibold text-gray-600">GLB</span>
                     <span className="px-4 py-2 bg-white rounded-xl shadow-md border border-gray-200 text-sm font-semibold text-gray-600">3MF</span>
+                  </div>
+
+                  {/* Quick workflow hint */}
+                  <div className="mt-8 flex items-center justify-center gap-2 text-xs text-gray-400">
+                    <span className="px-2 py-1 bg-gray-50 rounded-lg">1. Load</span>
+                    <span>→</span>
+                    <span className="px-2 py-1 bg-gray-50 rounded-lg">2. Select</span>
+                    <span>→</span>
+                    <span className="px-2 py-1 bg-gray-50 rounded-lg">3. Separate</span>
+                    <span>→</span>
+                    <span className="px-2 py-1 bg-gray-50 rounded-lg">4. Export</span>
                   </div>
                 </div>
               </div>
@@ -130,9 +146,17 @@ function AppContent() {
           </div>
         </div>
 
-        {/* Right Properties Panel */}
-        <div className="w-80 flex-shrink-0 bg-white border-l border-gray-200 overflow-y-auto shadow-sm">
-          <ColorPanel />
+        {/* Right Side - Color Palette + Layers */}
+        <div className="w-80 flex-shrink-0 bg-white border-l border-gray-200 overflow-y-auto shadow-sm flex flex-col">
+          {/* Color Palette (top half) */}
+          <div className="flex-1 border-b border-gray-200 overflow-y-auto">
+            <ColorPanel />
+          </div>
+
+          {/* Layers Panel (bottom half) */}
+          <div className="flex-1 overflow-y-auto bg-gray-50">
+            <LayersPanel />
+          </div>
         </div>
       </div>
     </div>

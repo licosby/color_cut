@@ -4,6 +4,14 @@ import { ColorGroup } from '../geometry/ColorGrouper';
 
 export type UIMode = 'select' | 'highlight' | 'export';
 
+export interface Layer {
+  id: string;
+  name: string;
+  colorGroup: ColorGroup;
+  visible: boolean;
+  geometry: THREE.BufferGeometry | null;
+}
+
 export interface AppState {
   // Model state
   model: THREE.Mesh | null;
@@ -13,12 +21,17 @@ export interface AppState {
   // Color analysis
   colorGroups: ColorGroup[];
   
+  // Layers system
+  layers: Layer[];
+  selectedLayerId: string | null;
+  
   // UI state
   selectedColorIndex: number | null;
   isLoading: boolean;
   error: string | null;
   quantizeLevel: number;
   uiMode: UIMode;
+  showOnboarding: boolean;
 }
 
 const initialState: AppState = {
@@ -26,11 +39,14 @@ const initialState: AppState = {
   geometry: null,
   fileName: '',
   colorGroups: [],
+  layers: [],
+  selectedLayerId: null,
   selectedColorIndex: null,
   isLoading: false,
   error: null,
   quantizeLevel: 8,
   uiMode: 'select',
+  showOnboarding: !localStorage.getItem('colorcut-onboarding-complete'),
 };
 
 type Action =
@@ -41,6 +57,12 @@ type Action =
   | { type: 'SELECT_COLOR'; payload: number | null }
   | { type: 'SET_QUANTIZE_LEVEL'; payload: number }
   | { type: 'SET_UI_MODE'; payload: UIMode }
+  | { type: 'ADD_LAYER'; payload: Layer }
+  | { type: 'REMOVE_LAYER'; payload: string }
+  | { type: 'RENAME_LAYER'; payload: { id: string; name: string } }
+  | { type: 'TOGGLE_LAYER_VISIBILITY'; payload: string }
+  | { type: 'SELECT_LAYER'; payload: string | null }
+  | { type: 'DISMISS_ONBOARDING' }
   | { type: 'RESET' };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -56,6 +78,8 @@ function reducer(state: AppState, action: Action): AppState {
         geometry: action.payload.geometry,
         fileName: action.payload.fileName,
         colorGroups: [],
+        layers: [],
+        selectedLayerId: null,
         selectedColorIndex: null,
         isLoading: false,
         error: null,
@@ -68,6 +92,33 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, quantizeLevel: action.payload };
     case 'SET_UI_MODE':
       return { ...state, uiMode: action.payload };
+    case 'ADD_LAYER':
+      return { ...state, layers: [...state.layers, action.payload] };
+    case 'REMOVE_LAYER':
+      return {
+        ...state,
+        layers: state.layers.filter(l => l.id !== action.payload),
+        selectedLayerId: state.selectedLayerId === action.payload ? null : state.selectedLayerId,
+      };
+    case 'RENAME_LAYER':
+      return {
+        ...state,
+        layers: state.layers.map(l =>
+          l.id === action.payload.id ? { ...l, name: action.payload.name } : l
+        ),
+      };
+    case 'TOGGLE_LAYER_VISIBILITY':
+      return {
+        ...state,
+        layers: state.layers.map(l =>
+          l.id === action.payload ? { ...l, visible: !l.visible } : l
+        ),
+      };
+    case 'SELECT_LAYER':
+      return { ...state, selectedLayerId: action.payload };
+    case 'DISMISS_ONBOARDING':
+      localStorage.setItem('colorcut-onboarding-complete', 'true');
+      return { ...state, showOnboarding: false };
     case 'RESET':
       return initialState;
     default:
