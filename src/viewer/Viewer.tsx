@@ -179,25 +179,34 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper }, ref)
 
       raycasterRef.current.setFromCamera(mouseRef.current, camera);
 
-      const intersectTargets: THREE.Object3D[] = [];
-      if (modelGroupRef.current) {
-        modelGroupRef.current.traverse((child) => {
-          if ((child as THREE.Mesh).isMesh) {
-            intersectTargets.push(child);
-          }
-        });
+      // CRITICAL FIX: Raycast against the main mesh directly, not the group
+      // The main mesh is the merged geometry with proper indexing
+      const mainMesh = modelGroupRef.current?.children[0] as THREE.Mesh | undefined;
+      if (!mainMesh || !mainMesh.isMesh) {
+        console.warn('No main mesh found for raycasting');
+        return;
       }
 
-      const intersects = raycasterRef.current.intersectObjects(intersectTargets, false);
+      // Ensure the mesh has an index for proper triangle picking
+      if (!mainMesh.geometry.index) {
+        console.warn('Main mesh geometry has no index - raycasting may not work correctly');
+      }
+
+      const intersects = raycasterRef.current.intersectObject(mainMesh, false);
 
       if (intersects.length > 0) {
         const hit = intersects[0];
+        
+        // faceIndex is the triangle index for indexed geometry
         if (hit.faceIndex !== undefined && hit.faceIndex !== null) {
-          const triangleIndex = hit.faceIndex as number;
+          const triangleIndex = hit.faceIndex;
+          
           if (colorGrouper) {
             const groupIndex = colorGrouper.findGroupIndexByTriangle(triangleIndex);
             if (groupIndex !== null) {
               dispatch({ type: 'SELECT_COLOR', payload: groupIndex });
+            } else {
+              console.warn(`Triangle ${triangleIndex} not found in any color group`);
             }
           }
         }

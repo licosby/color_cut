@@ -103,15 +103,15 @@ export class ModelLoader {
 
   /**
    * 3MF Loader - FIXED VERSION
-   * Recursively walks the 3MF hierarchy to find all meshes.
-   * Does NOT assume objectData.mesh exists.
-   * Handles: single mesh, multiple objects, nested resources, color groups.
+   * ThreeMFLoader returns a Group with children meshes.
+   * We traverse the group and collect all meshes, then merge them.
    */
   private load3MF(buffer: ArrayBuffer, fileName: string): LoadedModel {
     const loader = new ThreeMFLoader();
-    let group: THREE.Group;
+    let group: THREE.Object3D;
 
     try {
+      // ThreeMFLoader.parse() returns a Group object
       group = loader.parse(buffer);
     } catch (e) {
       throw new Error(
@@ -119,23 +119,33 @@ export class ModelLoader {
       );
     }
 
-    // Validate the loaded group
     if (!group) {
       throw new Error('This 3MF file contains no mesh data.');
     }
 
-    // Recursively extract all meshes from the 3MF hierarchy
-    const meshes = this.extractMeshesFrom3MF(group);
+    // CRITICAL FIX: Traverse the group to find all meshes
+    // ThreeMFLoader returns a Group with children, NOT a direct mesh
+    const meshes: THREE.Mesh[] = [];
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        meshes.push(child as THREE.Mesh);
+      }
+    });
 
     if (meshes.length === 0) {
       throw new Error('This 3MF file contains no mesh data.');
     }
 
-    // Merge all extracted meshes into a single geometry
+    // Merge all meshes into a single geometry
     const { geometry, materials } = this.mergeMeshArray(meshes);
 
     if (geometry.getAttribute('position').count === 0) {
       throw new Error('This 3MF file contains no geometry.');
+    }
+
+    // Ensure geometry has an index for raycasting
+    if (!geometry.index) {
+      this.generateIndex(geometry);
     }
 
     geometry.computeVertexNormals();
@@ -150,47 +160,9 @@ export class ModelLoader {
   }
 
   /**
-   * Recursively walk the 3MF structure and collect all mesh objects.
-   * Handles: .children, .model.resources.objects, nested groups.
-   */
-  private extractMeshesFrom3MF(object: THREE.Object3D): THREE.Mesh[] {
-    const meshes: THREE.Mesh[] = [];
-
-    const walk = (obj: THREE.Object3D) => {
-      // If this object is a mesh, collect it
-      if ((obj as THREE.Mesh).isMesh) {
-        meshes.push(obj as THREE.Mesh);
-      }
-
-      // Recursively walk children
-      if (obj.children && obj.children.length > 0) {
-        for (const child of obj.children) {
-          walk(child);
-        }
-      }
-
-      // Also check for .model.resources.objects (3MF specific structure)
-      const objAny = obj as any;
-      if (objAny.model && objAny.model.resources && objAny.model.resources.objects) {
-        const objects = objAny.model.resources.objects;
-        if (Array.isArray(objects)) {
-          for (const resource of objects) {
-            if (resource.mesh) {
-              // This is a 3MF mesh resource - we'll handle it via the group traversal
-              // The ThreeMFLoader should have already converted these to Three.js meshes
-            }
-          }
-        }
-      }
-    };
-
-    walk(object);
-    return meshes;
-  }
-
-  /**
    * Merge an array of meshes into a single BufferGeometry.
    * Preserves vertex colors and materials.
+   * Ensures all geometries have indices for raycasting.
    */
   private mergeMeshArray(meshes: THREE.Mesh[]): { geometry: THREE.BufferGeometry; materials: THREE.Material[] } {
     const allGeometries: THREE.BufferGeometry[] = [];
@@ -237,7 +209,7 @@ export class ModelLoader {
       meshObj.updateWorldMatrix(true, false);
       geo.applyMatrix4(meshObj.matrixWorld);
 
-      // Ensure index exists
+      // CRITICAL: Ensure index exists for raycasting
       if (!geo.index) {
         this.generateIndex(geo);
       }
