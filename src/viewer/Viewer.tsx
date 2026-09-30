@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useAppState, Layer } from '../state/UIState';
 import { Highlighting } from './Highlighting';
 import { ColorGrouper } from '../geometry/ColorGrouper';
+import { PartSelector } from '../geometry/PartSelector';
 
 export interface ViewerAPI {
   resetCamera: () => void;
@@ -12,12 +13,14 @@ export interface ViewerAPI {
 
 interface ViewerProps {
   colorGrouper: ColorGrouper | null;
+  uiMode?: 'select' | 'highlight' | 'export' | 'part';
+  angleThreshold?: number;
 }
 
 /**
  * Viewer - Three.js 3D viewport with orbit controls, click-to-select, and layer management
  */
-export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper }, ref) => {
+export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode = 'select', angleThreshold = 45 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -26,6 +29,7 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper }, ref)
   const modelGroupRef = useRef<THREE.Group | null>(null);
   const layersGroupRef = useRef<THREE.Group | null>(null);
   const highlightingRef = useRef<Highlighting | null>(null);
+  const partSelectorRef = useRef<PartSelector>(new PartSelector());
   const animFrameRef = useRef<number>(0);
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
   const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
@@ -201,12 +205,20 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper }, ref)
         if (hit.faceIndex !== undefined && hit.faceIndex !== null) {
           const triangleIndex = hit.faceIndex;
           
-          if (colorGrouper) {
-            const groupIndex = colorGrouper.findGroupIndexByTriangle(triangleIndex);
-            if (groupIndex !== null) {
-              dispatch({ type: 'SELECT_COLOR', payload: groupIndex });
-            } else {
-              console.warn(`Triangle ${triangleIndex} not found in any color group`);
+          // Check UI mode to determine selection behavior
+          if (uiMode === 'part') {
+            // Part selection mode - use flood fill with angle threshold
+            const selectedTriangles = partSelectorRef.current.selectPart(triangleIndex, angleThreshold);
+            dispatch({ type: 'SET_SELECTED_TRIANGLES', payload: selectedTriangles });
+          } else {
+            // Color selection mode - find color group
+            if (colorGrouper) {
+              const groupIndex = colorGrouper.findGroupIndexByTriangle(triangleIndex);
+              if (groupIndex !== null) {
+                dispatch({ type: 'SELECT_COLOR', payload: groupIndex });
+              } else {
+                console.warn(`Triangle ${triangleIndex} not found in any color group`);
+              }
             }
           }
         }
@@ -223,6 +235,48 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper }, ref)
       canvas.removeEventListener('click', handleClick);
     };
   }, [colorGrouper, dispatch]);
+
+  // Build adjacency graph when geometry loads
+  useEffect(() => {
+    if (state.geometry) {
+      partSelectorRef.current.buildAdjacency(state.geometry);
+    }
+  }, [state.geometry]);
+
+  // Highlight selected triangles in part mode
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const highlighting = highlightingRef.current;
+    if (!scene || !highlighting || !state.geometry) return;
+
+    if (uiMode === 'part' && state.selectedTriangles.length > 0) {
+      // Create a temporary color group for highlighting
+      const tempGroup = {
+        color: '#4A7AFF',
+        colorObj: new THREE.Color(0x4A7AFF),
+        triangleIndices: state.selectedTriangles,
+        triangleCount: state.selectedTriangles.length,
+        r: 0.29,
+        g: 0.48,
+        b: 1.0,
+      };
+      highlighting.highlightTriangles(state.geometry, tempGroup, false);
+      
+      // Apply transform to match the model
+      const posAttr = state.geometry.getAttribute('position');
+      const box = new THREE.Box3().setFromBufferAttribute(posAttr as THREE.BufferAttribute);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = maxDim > 0 ? 4 / maxDim : 1;
+      
+      const hlGroup = highlighting.getGroup();
+      hlGroup.scale.setScalar(scale);
+      hlGroup.position.copy(center.clone().multiplyScalar(-scale));
+    } else if (uiMode !== 'part' || state.selectedTriangles.length === 0) {
+      highlighting.clearHighlight();
+    }
+  }, [state.selectedTriangles, uiMode, state.geometry]);
 
   // Update main model when geometry or selection changes
   const updateModel = useCallback(() => {
@@ -353,8 +407,15 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper }, ref)
       for (const layer of state.layers) {
         if (!layer.visible || !layer.geometry) continue;
 
+        // Use colorGroup color if available, otherwise generate a color from layer index
+        const layerColor = layer.colorGroup?.colorObj || new THREE.Color().setHSL(
+          (state.layers.indexOf(layer) * 0.618) % 1, // Golden ratio for nice color distribution
+          0.7,
+          0.5
+        );
+
         const material = new THREE.MeshStandardMaterial({
-          color: layer.colorGroup.colorObj,
+          color: layerColor,
           side: THREE.DoubleSide,
           metalness: 0.05,
           roughness: 0.7,

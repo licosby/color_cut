@@ -79,7 +79,12 @@ function AppContent() {
         {/* Center Viewer Canvas */}
         <div className="flex-1 relative p-4">
           <div className="w-full h-full bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden relative">
-            <Viewer ref={viewerRef} colorGrouper={colorGrouper} />
+            <Viewer 
+              ref={viewerRef} 
+              colorGrouper={colorGrouper}
+              uiMode={state.uiMode}
+              angleThreshold={state.angleThreshold}
+            />
 
             {/* Empty state overlay */}
             {!state.geometry && !state.isLoading && (

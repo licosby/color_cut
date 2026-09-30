@@ -55,7 +55,30 @@ export function TopBar({ onResetView, colorGrouper }: TopBarProps) {
   };
 
   const handleSeparate = () => {
-    if (state.selectedColorIndex === null || !state.geometry) return;
+    if (!state.geometry) return;
+
+    // Check if we're in part mode with selected triangles
+    if (state.uiMode === 'part' && state.selectedTriangles.length > 0) {
+      // Build geometry from selected triangles
+      const layerGeometry = exportEngine.buildGeometryFromTriangles(state.geometry, state.selectedTriangles);
+
+      // Create a new layer
+      const layer: Layer = {
+        id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: `Part ${state.layers.length + 1}`,
+        colorGroup: null,
+        triangleIndices: [...state.selectedTriangles],
+        visible: true,
+        geometry: layerGeometry,
+      };
+
+      dispatch({ type: 'ADD_LAYER', payload: layer });
+      dispatch({ type: 'SET_SELECTED_TRIANGLES', payload: [] });
+      return;
+    }
+
+    // Otherwise, use color-based separation
+    if (state.selectedColorIndex === null) return;
 
     const colorGroup = state.colorGroups[state.selectedColorIndex];
     if (!colorGroup) return;
@@ -83,14 +106,23 @@ export function TopBar({ onResetView, colorGrouper }: TopBarProps) {
       const layer = state.layers[i];
       if (layer.geometry) {
         const nameWithoutExt = state.fileName.replace(/\.[^/.]+$/, '');
-        const colorHex = layer.colorGroup.color.replace('#', '');
-        const exportFileName = `${nameWithoutExt}_layer${i + 1}_${colorHex}.stl`;
-
-        // Use the export engine to get STL blob for this layer's color group
-        const stlData = exportEngine.getSTLBlob(
-          state.geometry,
-          layer.colorGroup
-        );
+        
+        // Handle both color-based and part-based layers
+        let exportFileName: string;
+        let stlData: Blob;
+        
+        if (layer.colorGroup) {
+          // Color-based layer
+          const colorHex = layer.colorGroup.color.replace('#', '');
+          exportFileName = `${nameWithoutExt}_layer${i + 1}_${colorHex}.stl`;
+          stlData = exportEngine.getSTLBlob(state.geometry, layer.colorGroup);
+        } else if (layer.triangleIndices) {
+          // Part-based layer - use triangle indices directly
+          exportFileName = `${nameWithoutExt}_layer${i + 1}_part.stl`;
+          stlData = exportEngine.getSTLBlobFromTriangles(state.geometry, layer.triangleIndices);
+        } else {
+          continue;
+        }
 
         // Trigger download
         const url = URL.createObjectURL(stlData);
@@ -114,7 +146,10 @@ export function TopBar({ onResetView, colorGrouper }: TopBarProps) {
     onResetView();
   };
 
-  const canSeparate = state.selectedColorIndex !== null && state.geometry !== null;
+  const canSeparate = state.geometry !== null && (
+    (state.selectedColorIndex !== null) ||
+    (state.uiMode === 'part' && state.selectedTriangles.length > 0)
+  );
 
   return (
     <div className="flex items-center justify-between px-5 py-3 bg-white border-b border-gray-200 shadow-sm">

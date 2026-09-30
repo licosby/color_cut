@@ -95,7 +95,7 @@ export function LayersPanel() {
                 {/* Color swatch */}
                 <div
                   className="w-8 h-8 rounded-lg flex-shrink-0 shadow-sm border-2 border-white"
-                  style={{ backgroundColor: layer.colorGroup.color }}
+                  style={{ backgroundColor: layer.colorGroup?.color || '#888888' }}
                 />
 
                 {/* Layer info */}
@@ -119,7 +119,7 @@ export function LayersPanel() {
                     </button>
                   )}
                   <span className="text-[10px] text-gray-400">
-                    {layer.colorGroup.triangleCount.toLocaleString()} triangles
+                    {(layer.colorGroup?.triangleCount || layer.triangleIndices?.length || 0).toLocaleString()} triangles
                   </span>
                 </div>
 
@@ -174,7 +174,7 @@ export function LayersPanel() {
       {/* Summary */}
       <div className="mt-4 pt-3 border-t border-gray-200">
         <div className="text-xs text-gray-400 px-1">
-          {state.layers.reduce((sum, l) => sum + l.colorGroup.triangleCount, 0).toLocaleString()} triangles separated
+          {state.layers.reduce((sum, l) => sum + (l.colorGroup?.triangleCount || l.triangleIndices?.length || 0), 0).toLocaleString()} triangles separated
         </div>
       </div>
     </div>

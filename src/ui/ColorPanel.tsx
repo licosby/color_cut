@@ -32,11 +32,12 @@ export function ColorPanel() {
 
   const handleClearSelection = () => {
     dispatch({ type: 'SELECT_COLOR', payload: null });
+    dispatch({ type: 'SET_SELECTED_TRIANGLES', payload: [] });
   };
 
   // Check if a color has already been separated into a layer
   const isColorSeparated = (colorHex: string): boolean => {
-    return state.layers.some(l => l.colorGroup.color === colorHex);
+    return state.layers.some(l => l.colorGroup?.color === colorHex);
   };
 
   if (state.colorGroups.length === 0) {
@@ -76,30 +77,90 @@ export function ColorPanel() {
 
       {/* Sensitivity slider */}
       <div className="mb-4 p-3.5 bg-gradient-to-br from-gray-50 to-purple-50 rounded-2xl border border-gray-200">
-        <label className="text-xs text-gray-600 flex items-center justify-between mb-2.5">
-          <span className="font-semibold">Color Sensitivity</span>
-          <span className="text-purple-600 font-bold text-sm bg-white px-2 py-0.5 rounded-lg shadow-sm border border-purple-100">
-            {state.quantizeLevel}
-          </span>
-        </label>
-        <input
-          type="range"
-          min="2"
-          max="32"
-          value={state.quantizeLevel}
-          onChange={(e) => {
-            dispatch({ type: 'SET_QUANTIZE_LEVEL', payload: parseInt(e.target.value) });
-          }}
-          className="w-full h-2 bg-gray-200 rounded-full appearance-none cursor-pointer"
-        />
-        <div className="flex justify-between mt-2">
-          <span className="text-[10px] text-gray-400 font-medium">Less detail</span>
-          <span className="text-[10px] text-gray-400 font-medium">More detail</span>
-        </div>
+        {state.uiMode === 'part' ? (
+          <>
+            <label className="text-xs text-gray-600 flex items-center justify-between mb-2.5">
+              <span className="font-semibold">Edge Angle</span>
+              <span className="text-purple-600 font-bold text-sm bg-white px-2 py-0.5 rounded-lg shadow-sm border border-purple-100">
+                {state.angleThreshold}°
+              </span>
+            </label>
+            <input
+              type="range"
+              min="5"
+              max="90"
+              value={state.angleThreshold}
+              onChange={(e) => {
+                dispatch({ type: 'SET_ANGLE_THRESHOLD', payload: parseInt(e.target.value) });
+              }}
+              className="w-full h-2 bg-gray-200 rounded-full appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between mt-2">
+              <span className="text-[10px] text-gray-400 font-medium">Sharp edges</span>
+              <span className="text-[10px] text-gray-400 font-medium">Smooth surfaces</span>
+            </div>
+            <p className="text-[10px] text-gray-500 mt-2">
+              Lower = separate at subtle edges. Higher = only separate at sharp edges.
+            </p>
+          </>
+        ) : (
+          <>
+            <label className="text-xs text-gray-600 flex items-center justify-between mb-2.5">
+              <span className="font-semibold">Color Sensitivity</span>
+              <span className="text-purple-600 font-bold text-sm bg-white px-2 py-0.5 rounded-lg shadow-sm border border-purple-100">
+                {state.quantizeLevel}
+              </span>
+            </label>
+            <input
+              type="range"
+              min="2"
+              max="32"
+              value={state.quantizeLevel}
+              onChange={(e) => {
+                dispatch({ type: 'SET_QUANTIZE_LEVEL', payload: parseInt(e.target.value) });
+              }}
+              className="w-full h-2 bg-gray-200 rounded-full appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between mt-2">
+              <span className="text-[10px] text-gray-400 font-medium">Less detail</span>
+              <span className="text-[10px] text-gray-400 font-medium">More detail</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Selection info */}
-      {state.selectedColorIndex !== null && (
+      {state.uiMode === 'part' && state.selectedTriangles.length > 0 && (
+        <div className="mb-4 p-3 bg-blue-50 border-2 border-blue-200 rounded-2xl shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-6 h-6 rounded-lg bg-blue-500 border-2 border-white shadow-md flex items-center justify-center">
+                <span className="text-white text-xs">🧩</span>
+              </div>
+              <div>
+                <span className="text-xs font-bold text-blue-700 block">
+                  Part Selected
+                </span>
+                <span className="text-[10px] text-blue-500">
+                  {state.selectedTriangles.length.toLocaleString()} triangles
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={handleClearSelection}
+              className="w-6 h-6 rounded-lg bg-white border border-blue-200 flex items-center justify-center text-blue-500 hover:bg-blue-100 transition-colors shadow-sm"
+            >
+              ✕
+            </button>
+          </div>
+          {/* Hint to use Separate button */}
+          <p className="text-[10px] text-blue-500 mt-2 text-center">
+            Click <strong>Separate</strong> in the toolbar to create a layer
+          </p>
+        </div>
+      )}
+
+      {state.selectedColorIndex !== null && state.uiMode !== 'part' && (
         <div className="mb-4 p-3 bg-purple-50 border-2 border-purple-200 rounded-2xl shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">

@@ -2,12 +2,13 @@ import { createContext, useContext, useReducer, ReactNode } from 'react';
 import * as THREE from 'three';
 import { ColorGroup } from '../geometry/ColorGrouper';
 
-export type UIMode = 'select' | 'highlight' | 'export';
+export type UIMode = 'select' | 'highlight' | 'export' | 'part';
 
 export interface Layer {
   id: string;
   name: string;
-  colorGroup: ColorGroup;
+  colorGroup: ColorGroup | null; // null for part-based layers
+  triangleIndices?: number[]; // for part-based layers
   visible: boolean;
   geometry: THREE.BufferGeometry | null;
 }
@@ -20,6 +21,10 @@ export interface AppState {
   
   // Color analysis
   colorGroups: ColorGroup[];
+  
+  // Part selection (topology-based)
+  selectedTriangles: number[];
+  angleThreshold: number;
   
   // Layers system
   layers: Layer[];
@@ -39,6 +44,8 @@ const initialState: AppState = {
   geometry: null,
   fileName: '',
   colorGroups: [],
+  selectedTriangles: [],
+  angleThreshold: 45,
   layers: [],
   selectedLayerId: null,
   selectedColorIndex: null,
@@ -62,6 +69,8 @@ type Action =
   | { type: 'RENAME_LAYER'; payload: { id: string; name: string } }
   | { type: 'TOGGLE_LAYER_VISIBILITY'; payload: string }
   | { type: 'SELECT_LAYER'; payload: string | null }
+  | { type: 'SET_SELECTED_TRIANGLES'; payload: number[] }
+  | { type: 'SET_ANGLE_THRESHOLD'; payload: number }
   | { type: 'DISMISS_ONBOARDING' }
   | { type: 'RESET' };
 
@@ -78,6 +87,7 @@ function reducer(state: AppState, action: Action): AppState {
         geometry: action.payload.geometry,
         fileName: action.payload.fileName,
         colorGroups: [],
+        selectedTriangles: [],
         layers: [],
         selectedLayerId: null,
         selectedColorIndex: null,
@@ -116,6 +126,10 @@ function reducer(state: AppState, action: Action): AppState {
       };
     case 'SELECT_LAYER':
       return { ...state, selectedLayerId: action.payload };
+    case 'SET_SELECTED_TRIANGLES':
+      return { ...state, selectedTriangles: action.payload };
+    case 'SET_ANGLE_THRESHOLD':
+      return { ...state, angleThreshold: action.payload };
     case 'DISMISS_ONBOARDING':
       localStorage.setItem('colorcut-onboarding-complete', 'true');
       return { ...state, showOnboarding: false };
