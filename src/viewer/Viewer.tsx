@@ -15,7 +15,7 @@ export interface ViewerAPI {
 
 interface ViewerProps {
   colorGrouper: ColorGrouper | null;
-  uiMode?: 'select' | 'highlight' | 'export' | 'part' | 'paint';
+  uiMode?: 'select' | 'highlight' | 'export' | 'paint';
   angleThreshold?: number;
 }
 
@@ -276,17 +276,12 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
         if (hit.faceIndex !== undefined && hit.faceIndex !== null) {
           const triangleIndex = hit.faceIndex;
 
-          if (uiMode === 'part') {
-            const selectedTriangles = partSelectorRef.current.selectPart(triangleIndex, angleThreshold);
-            dispatch({ type: 'SET_SELECTED_TRIANGLES', payload: selectedTriangles });
-          } else {
-            if (colorGrouper) {
-              const groupIndex = colorGrouper.findGroupIndexByTriangle(triangleIndex);
-              if (groupIndex !== null) {
-                dispatch({ type: 'SELECT_COLOR', payload: groupIndex });
-              } else {
-                console.warn(`Triangle ${triangleIndex} not found in any color group`);
-              }
+          if (colorGrouper) {
+            const groupIndex = colorGrouper.findGroupIndexByTriangle(triangleIndex);
+            if (groupIndex !== null) {
+              dispatch({ type: 'SELECT_COLOR', payload: groupIndex });
+            } else {
+              console.warn(`Triangle ${triangleIndex} not found in any color group`);
             }
           }
         }
@@ -324,37 +319,13 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     }
   }, [state.geometry, state.paintMode, dispatch]);
 
-  // Highlight selected triangles in part mode or painted triangles in paint mode
+  // Highlight painted triangles in paint mode
   useEffect(() => {
     const scene = sceneRef.current;
     const highlighting = highlightingRef.current;
     if (!scene || !highlighting || !state.geometry) return;
 
-    if (uiMode === 'part' && state.selectedTriangles.length > 0) {
-      // Create a temporary color group for highlighting
-      const tempGroup = {
-        color: '#4A7AFF',
-        colorObj: new THREE.Color(0x4A7AFF),
-        triangleIndices: state.selectedTriangles,
-        triangleCount: state.selectedTriangles.length,
-        r: 0.29,
-        g: 0.48,
-        b: 1.0,
-      };
-      highlighting.highlightTriangles(state.geometry, tempGroup, false);
-
-      // Apply transform to match the model
-      const posAttr = state.geometry.getAttribute('position');
-      const box = new THREE.Box3().setFromBufferAttribute(posAttr as THREE.BufferAttribute);
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z);
-      const scale = maxDim > 0 ? 4 / maxDim : 1;
-
-      const hlGroup = highlighting.getGroup();
-      hlGroup.scale.setScalar(scale);
-      hlGroup.position.copy(center.clone().multiplyScalar(-scale));
-    } else if (uiMode === 'paint' && state.paintedTriangles.size > 0) {
+    if (uiMode === 'paint' && state.paintedTriangles.size > 0) {
       // Highlight painted triangles
       const paintedArray = Array.from(state.paintedTriangles);
       const tempGroup = {

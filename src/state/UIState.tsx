@@ -2,7 +2,7 @@ import { createContext, useContext, useReducer, ReactNode } from 'react';
 import * as THREE from 'three';
 import { ColorGroup } from '../geometry/ColorGrouper';
 
-export type UIMode = 'select' | 'highlight' | 'export' | 'part' | 'paint';
+export type UIMode = 'select' | 'highlight' | 'export' | 'paint';
 
 export interface Layer {
   id: string;
