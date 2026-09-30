@@ -5,6 +5,7 @@ import { LeftPanel } from './ui/LeftPanel';
 import { ColorPanel } from './ui/ColorPanel';
 import { LayersPanel } from './ui/LayersPanel';
 import { PaintPanel } from './ui/PaintPanel';
+import { TransformPanel } from './ui/TransformPanel';
 import { ExplodePanel } from './ui/ExplodePanel';
 import { ConnectorPanel } from './ui/ConnectorPanel';
 import { Onboarding } from './ui/Onboarding';
@@ -165,6 +166,13 @@ function AppContent() {
           <div className="border-b border-gray-200 overflow-y-auto max-h-[30%] bg-gray-50">
             <LayersPanel />
           </div>
+
+          {/* Transform Panel */}
+          {state.geometry && (
+            <div className="border-b border-gray-200 overflow-y-auto max-h-[30%]">
+              <TransformPanel />
+            </div>
+          )}
 
           {/* Explode and Connectors (bottom section, only show when layers exist) */}
           {state.layers.length > 0 && (

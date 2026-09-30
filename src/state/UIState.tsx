@@ -115,6 +115,8 @@ type Action =
   | { type: 'REMOVE_CONNECTOR'; payload: string }
   | { type: 'SELECT_CONNECTOR'; payload: string | null }
   | { type: 'SET_LAYER_EXPLODE_OFFSET'; payload: { id: string; offset: THREE.Vector3 } }
+  | { type: 'UPDATE_MODEL_GEOMETRY'; payload: THREE.BufferGeometry }
+  | { type: 'UPDATE_LAYER_GEOMETRY'; payload: { id: string; geometry: THREE.BufferGeometry } }
   | { type: 'DISMISS_ONBOARDING' }
   | { type: 'RESET' };
 
@@ -209,6 +211,18 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         layers: state.layers.map(l =>
           l.id === action.payload.id ? { ...l, explodeOffset: action.payload.offset } : l
+        ),
+      };
+    case 'UPDATE_MODEL_GEOMETRY':
+      return {
+        ...state,
+        geometry: action.payload,
+      };
+    case 'UPDATE_LAYER_GEOMETRY':
+      return {
+        ...state,
+        layers: state.layers.map(l =>
+          l.id === action.payload.id ? { ...l, geometry: action.payload.geometry } : l
         ),
       };
     case 'DISMISS_ONBOARDING':

@@ -33,7 +33,7 @@ export class Highlighting {
     const ghostMat = new THREE.MeshStandardMaterial({
       color: 0x888888,
       transparent: true,
-      opacity: 0.08,
+      opacity: 0.15,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -45,18 +45,45 @@ export class Highlighting {
     const highlightGeo = this.buildTriangleGeometry(sourceGeometry, colorGroup);
     
     const highlightColor = useGroupColor ? colorGroup.colorObj.clone() : new THREE.Color(0x4A7AFF);
+    
+    // Solid highlight mesh
     const highlightMat = new THREE.MeshStandardMaterial({
       color: highlightColor,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.9,
       side: THREE.DoubleSide,
-      metalness: 0.1,
-      roughness: 0.5,
+      metalness: 0.2,
+      roughness: 0.4,
+      emissive: highlightColor,
+      emissiveIntensity: 0.3,
     });
 
     this.highlightMesh = new THREE.Mesh(highlightGeo, highlightMat);
     this.highlightMesh.renderOrder = 1;
     this.highlightGroup.add(this.highlightMesh);
+
+    // Add wireframe outline for better visibility
+    const wireframeMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.4,
+    });
+    const wireframeMesh = new THREE.Mesh(highlightGeo.clone(), wireframeMat);
+    wireframeMesh.renderOrder = 2;
+    this.highlightGroup.add(wireframeMesh);
+
+    // Add edge outline
+    const edgesGeo = new THREE.EdgesGeometry(highlightGeo);
+    const edgesMat = new THREE.LineBasicMaterial({
+      color: highlightColor,
+      linewidth: 2,
+      transparent: true,
+      opacity: 0.8,
+    });
+    const edgesMesh = new THREE.LineSegments(edgesGeo, edgesMat);
+    edgesMesh.renderOrder = 3;
+    this.highlightGroup.add(edgesMesh);
   }
 
   /**
@@ -74,6 +101,8 @@ export class Highlighting {
     while (this.highlightGroup.children.length > 0) {
       const child = this.highlightGroup.children[0];
       this.highlightGroup.remove(child);
+      
+      // Dispose geometry and materials
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
         mesh.geometry.dispose();
@@ -82,6 +111,16 @@ export class Highlighting {
             mesh.material.forEach(m => m.dispose());
           } else {
             mesh.material.dispose();
+          }
+        }
+      } else if ((child as THREE.LineSegments).isLineSegments) {
+        const line = child as THREE.LineSegments;
+        line.geometry.dispose();
+        if (line.material) {
+          if (Array.isArray(line.material)) {
+            line.material.forEach(m => m.dispose());
+          } else {
+            line.material.dispose();
           }
         }
       }
