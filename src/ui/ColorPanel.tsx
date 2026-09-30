@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useAppState } from '../state/UIState';
 import { ExportEngine } from '../geometry/ExportEngine';
 import { useMemo } from 'react';
@@ -9,6 +10,18 @@ import { useMemo } from 'react';
 export function ColorPanel() {
   const { state, dispatch } = useAppState();
   const exportEngine = useMemo(() => new ExportEngine(), []);
+  const listRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Scroll selected color into view when selection changes
+  useEffect(() => {
+    if (state.selectedColorIndex !== null && itemRefs.current[state.selectedColorIndex]) {
+      itemRefs.current[state.selectedColorIndex]?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    }
+  }, [state.selectedColorIndex]);
 
   const handleColorClick = (index: number) => {
     if (state.selectedColorIndex === index) {
@@ -117,7 +130,7 @@ export function ColorPanel() {
       )}
 
       {/* Color list */}
-      <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+      <div ref={listRef} className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
         {state.colorGroups.map((group, index) => {
           const isSelected = state.selectedColorIndex === index;
           const percentage = ((group.triangleCount / totalTriangles) * 100).toFixed(1);
@@ -125,9 +138,10 @@ export function ColorPanel() {
           return (
             <div
               key={group.color + index}
+              ref={(el) => { itemRefs.current[index] = el; }}
               className={`rounded-2xl transition-all ${
                 isSelected
-                  ? 'bg-purple-50 border-2 border-purple-400 shadow-md'
+                  ? 'bg-purple-50 border-2 border-purple-400 shadow-md ring-2 ring-purple-200'
                   : 'bg-white border-2 border-gray-100 hover:border-purple-200 hover:shadow-sm'
               }`}
             >
@@ -137,7 +151,9 @@ export function ColorPanel() {
               >
                 {/* Color swatch */}
                 <div
-                  className="w-12 h-12 rounded-xl flex-shrink-0 shadow-md border-2 border-white"
+                  className={`w-12 h-12 rounded-xl flex-shrink-0 shadow-md border-2 transition-all ${
+                    isSelected ? 'border-purple-400 scale-110' : 'border-white'
+                  }`}
                   style={{ backgroundColor: group.color }}
                 />
 
@@ -165,6 +181,15 @@ export function ColorPanel() {
                     />
                   </div>
                 </div>
+
+                {/* Selection indicator */}
+                {isSelected && (
+                  <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                )}
               </button>
 
               {/* Export button row */}

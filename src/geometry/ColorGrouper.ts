@@ -16,11 +16,12 @@ export interface ColorGroup {
  * Supports adjustable quantization to merge similar colors
  */
 export class ColorGrouper {
-  private quantizeLevel: number = 8; // Quantize to reduce near-duplicate colors
+  private quantizeLevel: number = 8;
+  private groups: ColorGroup[] = [];
+  private triangleToGroupMap: Map<number, number> = new Map();
 
   /**
    * Analyze geometry and return color groups
-   * Groups triangles by their vertex colors (averaged per triangle)
    */
   groupByColor(geometry: THREE.BufferGeometry): ColorGroup[] {
     const positions = geometry.getAttribute('position');
@@ -31,7 +32,6 @@ export class ColorGrouper {
       return [];
     }
 
-    // Calculate total triangles
     const totalTriangles = index
       ? Math.floor(index.count / 3)
       : Math.floor(positions.count / 3);
@@ -40,11 +40,9 @@ export class ColorGrouper {
       return [];
     }
 
-    // Map to store color groups: key is quantized color hex
     const colorMap = new Map<string, ColorGroup>();
 
     for (let t = 0; t < totalTriangles; t++) {
-      // Get the 3 vertex indices for this triangle
       let v0: number, v1: number, v2: number;
 
       if (index) {
@@ -57,16 +55,13 @@ export class ColorGrouper {
         v2 = t * 3 + 2;
       }
 
-      // Validate vertex indices
       if (v0 >= positions.count || v1 >= positions.count || v2 >= positions.count) {
         continue;
       }
 
-      // Get the color for this triangle
       let r: number, g: number, b: number;
 
       if (colors && colors.count > 0) {
-        // Average the 3 vertex colors for the triangle
         const c0r = colors.getX(v0);
         const c0g = colors.getY(v0);
         const c0b = colors.getZ(v0);
@@ -81,18 +76,15 @@ export class ColorGrouper {
         g = (c0g + c1g + c2g) / 3;
         b = (c0b + c1b + c2b) / 3;
       } else {
-        // No vertex colors - assign a default color
         r = 0.5;
         g = 0.5;
         b = 0.5;
       }
 
-      // Clamp values to valid range
       r = Math.max(0, Math.min(1, r));
       g = Math.max(0, Math.min(1, g));
       b = Math.max(0, Math.min(1, b));
 
-      // Quantize color to group similar colors
       const qr = Math.round(r * this.quantizeLevel) / this.quantizeLevel;
       const qg = Math.round(g * this.quantizeLevel) / this.quantizeLevel;
       const qb = Math.round(b * this.quantizeLevel) / this.quantizeLevel;
@@ -118,10 +110,57 @@ export class ColorGrouper {
     }
 
     // Sort by triangle count (most common first)
-    const groups = Array.from(colorMap.values());
-    groups.sort((a, b) => b.triangleCount - a.triangleCount);
+    this.groups = Array.from(colorMap.values());
+    this.groups.sort((a, b) => b.triangleCount - a.triangleCount);
 
-    return groups;
+    // Build triangle-to-group lookup map for fast picking
+    this.buildTriangleMap();
+
+    return this.groups;
+  }
+
+  /**
+   * Find the color group that contains a specific triangle index
+   * Used for click-to-select functionality
+   */
+  findGroupByTriangle(triangleIndex: number): ColorGroup | null {
+    const groupIndex = this.triangleToGroupMap.get(triangleIndex);
+    if (groupIndex !== undefined && groupIndex < this.groups.length) {
+      return this.groups[groupIndex];
+    }
+    return null;
+  }
+
+  /**
+   * Get the index of the group containing a specific triangle
+   */
+  findGroupIndexByTriangle(triangleIndex: number): number | null {
+    const groupIndex = this.triangleToGroupMap.get(triangleIndex);
+    if (groupIndex !== undefined) {
+      return groupIndex;
+    }
+    return null;
+  }
+
+  /**
+   * Build a fast lookup map from triangle index to group index
+   */
+  private buildTriangleMap(): void {
+    this.triangleToGroupMap.clear();
+    
+    for (let groupIdx = 0; groupIdx < this.groups.length; groupIdx++) {
+      const group = this.groups[groupIdx];
+      for (const triIdx of group.triangleIndices) {
+        this.triangleToGroupMap.set(triIdx, groupIdx);
+      }
+    }
+  }
+
+  /**
+   * Get all groups
+   */
+  getGroups(): ColorGroup[] {
+    return this.groups;
   }
 
   /**
@@ -132,9 +171,7 @@ export class ColorGrouper {
   }
 
   /**
-   * Set quantize level (controls color sensitivity)
-   * Higher = more groups (finer color detection)
-   * Lower = fewer groups (merges similar colors)
+   * Set quantize level
    */
   setQuantizeLevel(level: number): void {
     this.quantizeLevel = Math.max(2, Math.min(32, level));

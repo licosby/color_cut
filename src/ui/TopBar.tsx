@@ -4,16 +4,20 @@ import { ModelLoader } from '../geometry/ModelLoader';
 import { ColorGrouper } from '../geometry/ColorGrouper';
 import { ExportEngine } from '../geometry/ExportEngine';
 
+interface TopBarProps {
+  onResetView: () => void;
+  colorGrouper: ColorGrouper;
+}
+
 /**
  * TopBar - Top toolbar with Load, Export, and Reset View buttons
  * Silhouette Studio style: large friendly icons, soft shadows, rounded corners
  */
-export function TopBar() {
+export function TopBar({ onResetView, colorGrouper }: TopBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { state, dispatch } = useAppState();
   
   const modelLoader = useMemo(() => new ModelLoader(), []);
-  const colorGrouper = useMemo(() => new ColorGrouper(), []);
   const exportEngine = useMemo(() => new ExportEngine(), []);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -56,6 +60,7 @@ export function TopBar() {
 
   const handleResetView = () => {
     dispatch({ type: 'SELECT_COLOR', payload: null });
+    onResetView();
   };
 
   return (

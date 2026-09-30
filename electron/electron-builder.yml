@@ -1,0 +1,74 @@
+appId: com.colorcut.3d
+productName: ColorCut 3D
+copyright: Copyright © 2024 ColorCut
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  artifactName: ${productName}-${version}-Setup-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ColorCut 3D
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: build/icon.icns
+  category: public.app-category.graphics-design
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+dmg:
+  sign: false
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  icon: build/icons
+  category: Graphics
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  maintainer: ColorCut Team
+  synopsis: Color-based 3D mesh separator for multi-color printing
+
+publish:
+  provider: generic
+  url: https://example.com/updates
+
+# Build options
+compression: maximum
+asar: true
+removePackageScripts: true

@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { AppProvider, useAppState } from './state/UIState';
 import { TopBar } from './ui/TopBar';
 import { LeftPanel } from './ui/LeftPanel';
 import { ColorPanel } from './ui/ColorPanel';
-import { Viewer } from './viewer/Viewer';
+import { Viewer, ViewerAPI } from './viewer/Viewer';
 import { ColorGrouper } from './geometry/ColorGrouper';
 
 /**
@@ -13,13 +13,16 @@ import { ColorGrouper } from './geometry/ColorGrouper';
 function AppContent() {
   const { state, dispatch } = useAppState();
   const prevQuantizeRef = useRef(state.quantizeLevel);
+  const viewerRef = useRef<ViewerAPI>(null);
+  
+  // Shared color grouper instance for click-to-select
+  const colorGrouper = useMemo(() => new ColorGrouper(), []);
 
   // Re-analyze colors when quantize level changes
   useEffect(() => {
     if (prevQuantizeRef.current !== state.quantizeLevel && state.geometry) {
       prevQuantizeRef.current = state.quantizeLevel;
       try {
-        const colorGrouper = new ColorGrouper();
         colorGrouper.setQuantizeLevel(state.quantizeLevel);
         const groups = colorGrouper.groupByColor(state.geometry);
         dispatch({ type: 'SET_COLOR_GROUPS', payload: groups });
@@ -27,12 +30,18 @@ function AppContent() {
         console.error('Error re-analyzing colors:', e);
       }
     }
-  }, [state.quantizeLevel, state.geometry, dispatch]);
+  }, [state.quantizeLevel, state.geometry, dispatch, colorGrouper]);
+
+  const handleResetView = () => {
+    if (viewerRef.current) {
+      viewerRef.current.resetCamera();
+    }
+  };
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-100 text-gray-800 overflow-hidden">
       {/* Top Toolbar */}
-      <TopBar />
+      <TopBar onResetView={handleResetView} colorGrouper={colorGrouper} />
 
       {/* Error Banner */}
       {state.error && (
@@ -65,7 +74,7 @@ function AppContent() {
         {/* Center Viewer Canvas */}
         <div className="flex-1 relative p-4">
           <div className="w-full h-full bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden relative">
-            <Viewer />
+            <Viewer ref={viewerRef} colorGrouper={colorGrouper} />
 
             {/* Empty state overlay */}
             {!state.geometry && !state.isLoading && (
@@ -82,7 +91,7 @@ function AppContent() {
                     Welcome to ColorCut 3D
                   </h2>
                   <p className="text-gray-500 text-sm mb-6 leading-relaxed px-4">
-                    Upload a 3D model to automatically detect colors and separate them into individual STL files. Perfect for multi-color 3D printing!
+                    Upload a 3D model to automatically detect colors and separate them into individual STL files. Click on the model to select colors!
                   </p>
                   <div className="flex items-center justify-center gap-3">
                     <span className="px-4 py-2 bg-white rounded-xl shadow-md border border-gray-200 text-sm font-semibold text-gray-600">STL</span>
@@ -110,6 +119,11 @@ function AppContent() {
                 <span className="flex items-center gap-1.5">
                   <span className="text-base">✋</span>
                   <span className="font-medium">Pan</span>
+                </span>
+                <span className="text-gray-300">|</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="text-base">👆</span>
+                  <span className="font-medium">Click to Select</span>
                 </span>
               </div>
             )}
