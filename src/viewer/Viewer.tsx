@@ -5,8 +5,7 @@ import { useAppState, Layer } from '../state/UIState';
 import { Highlighting } from './Highlighting';
 import { ColorGrouper } from '../geometry/ColorGrouper';
 import { PartSelector } from '../geometry/PartSelector';
-import { SpatialHash } from '../geometry/SpatialHash';
-import { BrushThrottle } from '../geometry/BrushThrottle';
+import { FastPainter } from '../geometry/FastPainter';
 
 export interface ViewerAPI {
   resetCamera: () => void;
@@ -15,7 +14,7 @@ export interface ViewerAPI {
 
 interface ViewerProps {
   colorGrouper: ColorGrouper | null;
-  uiMode?: 'select' | 'highlight' | 'export' | 'paint';
+  uiMode?: 'select' | 'highlight' | 'export' | 'paint' | 'magicwand';
   angleThreshold?: number;
 }
 
@@ -32,14 +31,14 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
   const layersGroupRef = useRef<THREE.Group | null>(null);
   const highlightingRef = useRef<Highlighting | null>(null);
   const partSelectorRef = useRef<PartSelector>(new PartSelector());
-  const spatialHashRef = useRef<SpatialHash>(new SpatialHash(0.1));
-  const brushThrottleRef = useRef<BrushThrottle>(new BrushThrottle());
+  const fastPainterRef = useRef<FastPainter>(new FastPainter());
   const animFrameRef = useRef<number>(0);
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
   const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
   const initialCameraPos = useRef(new THREE.Vector3(5, 4, 5));
   const isDraggingRef = useRef(false);
   const mouseDownPosRef = useRef({ x: 0, y: 0 });
+  const lastPaintTimeRef = useRef<number>(0);
 
   const { state, dispatch } = useAppState();
 
@@ -207,52 +206,69 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
       const camera = cameraRef.current;
       if (!camera || !state.geometry) return;
 
+      // Throttle painting to 60fps max
+      const now = performance.now();
+      if (now - lastPaintTimeRef.current < 16) return; // ~60fps
+      lastPaintTimeRef.current = now;
+
       const rect = canvas.getBoundingClientRect();
-      mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
 
-      raycasterRef.current.setFromCamera(mouseRef.current, camera);
+      // Use FastPainter for instant triangle selection
+      const brushRadius = state.brushSize; // Brush size is now in pixels
+      const trianglesToPaint = fastPainterRef.current.paintAt(screenX, screenY, brushRadius);
 
-      const mainMesh = modelGroupRef.current?.children[0] as THREE.Mesh | undefined;
-      if (!mainMesh || !mainMesh.isMesh) return;
+      if (trianglesToPaint.length > 0) {
+        // Track last clicked triangle for flood fill
+        if (trianglesToPaint.length > 0) {
+          dispatch({ type: 'SET_LAST_CLICKED_TRIANGLE', payload: trianglesToPaint[0] });
+        }
 
-      const intersects = raycasterRef.current.intersectObject(mainMesh, false);
-
-      if (intersects.length > 0) {
-        const hit = intersects[0];
-        if (hit.faceIndex !== undefined && hit.faceIndex !== null) {
-          const triangleIndex = hit.faceIndex;
-          
-          // Track last clicked triangle for flood fill
-          dispatch({ type: 'SET_LAST_CLICKED_TRIANGLE', payload: triangleIndex });
-          
-          // Use SpatialHash for fast brush selection (O(1) lookup)
-          const brushSize = state.brushSize;
-          const hitPoint = hit.point;
-          
-          // Calculate radius based on brush size (approximate)
-          // For large models, we use a spatial radius instead of topological distance
-          const radius = Math.sqrt(brushSize) * 0.05; // Adjust multiplier as needed
-          
-          const trianglesToPaint = spatialHashRef.current.getTrianglesInRadius(hitPoint, radius);
-          
-          // Use throttle for smooth performance
-          if (state.paintMode === 'add') {
-            brushThrottleRef.current.addTriangles(trianglesToPaint);
-          } else {
-            brushThrottleRef.current.removeTriangles(trianglesToPaint);
-          }
+        // Batch update painted triangles
+        if (state.paintMode === 'add') {
+          trianglesToPaint.forEach(triIdx => {
+            dispatch({ type: 'ADD_PAINTED_TRIANGLE', payload: triIdx });
+          });
+        } else {
+          trianglesToPaint.forEach(triIdx => {
+            dispatch({ type: 'REMOVE_PAINTED_TRIANGLE', payload: triIdx });
+          });
         }
       }
     };
 
     const handleClick = (e: MouseEvent) => {
-      if (isDraggingRef.current || uiMode === 'paint') return;
+      if (isDraggingRef.current) return;
 
       const camera = cameraRef.current;
       if (!camera) return;
 
       const rect = canvas.getBoundingClientRect();
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
+
+      // Magic wand mode - instant region selection
+      if (uiMode === 'magicwand') {
+        const selectedTriangles = fastPainterRef.current.magicWand(
+          screenX,
+          screenY,
+          camera,
+          canvas.clientWidth,
+          canvas.clientHeight,
+          state.angleThreshold
+        );
+
+        if (selectedTriangles.length > 0) {
+          dispatch({ type: 'SET_SELECTED_TRIANGLES', payload: selectedTriangles });
+        }
+        return;
+      }
+
+      // Paint mode - handled by handlePaint
+      if (uiMode === 'paint') return;
+
+      // Color selection mode
       mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
@@ -300,24 +316,34 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
       canvas.removeEventListener('click', handleClick);
     };
   }, [colorGrouper, dispatch, uiMode, state.brushSize, state.paintMode, state.geometry]);
-  // Build adjacency graph and spatial hash when geometry loads
+  // Build adjacency graph and fast painter when geometry loads
   useEffect(() => {
     if (state.geometry) {
       partSelectorRef.current.buildAdjacency(state.geometry);
-      spatialHashRef.current.build(state.geometry);
-      
-      // Set up brush throttle callback
-      brushThrottleRef.current.setCallback((triangles: number[]) => {
-        triangles.forEach(triIdx => {
-          if (state.paintMode === 'add') {
-            dispatch({ type: 'ADD_PAINTED_TRIANGLE', payload: triIdx });
-          } else {
-            dispatch({ type: 'REMOVE_PAINTED_TRIANGLE', payload: triIdx });
-          }
-        });
-      });
+      fastPainterRef.current.init(state.geometry);
     }
-  }, [state.geometry, state.paintMode, dispatch]);
+  }, [state.geometry]);
+
+  // Update screen space when camera moves
+  useEffect(() => {
+    const updateScreenSpace = () => {
+      if (cameraRef.current && rendererRef.current && state.geometry) {
+        const canvas = rendererRef.current.domElement;
+        fastPainterRef.current.updateScreenSpace(
+          cameraRef.current,
+          canvas.clientWidth,
+          canvas.clientHeight
+        );
+      }
+    };
+
+    // Update on camera change
+    const controls = controlsRef.current;
+    if (controls) {
+      controls.addEventListener('change', updateScreenSpace);
+      return () => controls.removeEventListener('change', updateScreenSpace);
+    }
+  }, [state.geometry]);
 
   // Highlight painted triangles in paint mode
   useEffect(() => {

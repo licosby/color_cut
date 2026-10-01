@@ -2,7 +2,7 @@ import { createContext, useContext, useReducer, ReactNode } from 'react';
 import * as THREE from 'three';
 import { ColorGroup } from '../geometry/ColorGrouper';
 
-export type UIMode = 'select' | 'highlight' | 'export' | 'paint';
+export type UIMode = 'select' | 'highlight' | 'export' | 'paint' | 'magicwand';
 
 export interface Layer {
   id: string;
@@ -98,7 +98,7 @@ const initialState: AppState = {
   selectedTriangles: [],
   angleThreshold: 45,
   paintedTriangles: new Set<number>(),
-  brushSize: 5,
+  brushSize: 50, // pixels
   paintMode: 'add',
   lastClickedTriangle: null,
   history: [],

@@ -228,7 +228,7 @@ export function PaintPanel() {
       {/* Brush Size - Editable Input + Slider */}
       <div className="mb-4 p-3.5 bg-gradient-to-br from-gray-50 to-purple-50 rounded-2xl border border-gray-200">
         <label className="text-xs text-gray-600 font-semibold mb-2.5 block">
-          Brush Size (triangles)
+          Brush Size (pixels)
         </label>
         
         {/* Editable Number Input */}
@@ -247,11 +247,11 @@ export function PaintPanel() {
         {/* Quick Size Presets */}
         <div className="grid grid-cols-5 gap-1.5 mb-3">
           {[
-            { size: 1, label: '1' },
-            { size: 100, label: '100' },
-            { size: 1000, label: '1K' },
-            { size: 10000, label: '10K' },
-            { size: 100000, label: '100K' },
+            { size: 10, label: 'Fine' },
+            { size: 30, label: 'Small' },
+            { size: 75, label: 'Medium' },
+            { size: 150, label: 'Large' },
+            { size: 300, label: 'Huge' },
           ].map(({ size, label }) => (
             <button
               key={size}
@@ -273,10 +273,10 @@ export function PaintPanel() {
         {/* Slider */}
         <input
           type="range"
-          min="1"
-          max="100000"
-          step="1"
-          value={Math.min(state.brushSize, 100000)}
+          min="5"
+          max="500"
+          step="5"
+          value={state.brushSize}
           onChange={(e) => {
             const val = parseInt(e.target.value);
             dispatch({ type: 'SET_BRUSH_SIZE', payload: val });
@@ -285,8 +285,8 @@ export function PaintPanel() {
           className="w-full h-2 bg-gray-200 rounded-full appearance-none cursor-pointer"
         />
         <div className="flex justify-between mt-2">
-          <span className="text-[10px] text-gray-400 font-medium">1</span>
-          <span className="text-[10px] text-gray-400 font-medium">100K</span>
+          <span className="text-[10px] text-gray-400 font-medium">Fine (5px)</span>
+          <span className="text-[10px] text-gray-400 font-medium">Huge (500px)</span>
         </div>
       </div>
 

@@ -19,6 +19,12 @@ export function LeftPanel() {
       description: 'Click colors to select',
     },
     {
+      mode: 'magicwand',
+      icon: '🪄',
+      label: 'Magic',
+      description: 'Click to select entire part instantly',
+    },
+    {
       mode: 'paint',
       icon: '🖌️',
       label: 'Paint',
@@ -80,6 +86,7 @@ export function LeftPanel() {
       <div className="text-center px-2 mt-2">
         <p className="text-[10px] text-gray-400 leading-tight">
           {state.uiMode === 'select' && 'Select colors from the palette'}
+          {state.uiMode === 'magicwand' && 'Click on a part to select it instantly'}
           {state.uiMode === 'paint' && 'Click and drag to paint areas'}
           {state.uiMode === 'highlight' && 'Highlight selected color in viewer'}
           {state.uiMode === 'export' && 'Export colors as separate STL files'}

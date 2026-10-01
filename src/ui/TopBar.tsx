@@ -58,6 +58,27 @@ export function TopBar({ onResetView, colorGrouper, onShowHistory }: TopBarProps
   const handleSeparate = () => {
     if (!state.geometry) return;
 
+    // Check if we have selected triangles (from magic wand or paint)
+    if (state.selectedTriangles.length > 0) {
+      // Build geometry from selected triangles
+      const layerGeometry = exportEngine.buildGeometryFromTriangles(state.geometry, state.selectedTriangles);
+
+      // Create a new layer
+      const layer: Layer = {
+        id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: `Part ${state.layers.length + 1}`,
+        colorGroup: null,
+        triangleIndices: [...state.selectedTriangles],
+        visible: true,
+        geometry: layerGeometry,
+      };
+
+      dispatch({ type: 'ADD_LAYER', payload: layer });
+      dispatch({ type: 'SET_SELECTED_TRIANGLES', payload: [] });
+      dispatch({ type: 'SAVE_STATE', payload: { label: 'Separate part' } });
+      return;
+    }
+
     // Use color-based separation
     if (state.selectedColorIndex === null) return;
 
@@ -78,6 +99,7 @@ export function TopBar({ onResetView, colorGrouper, onShowHistory }: TopBarProps
 
     dispatch({ type: 'ADD_LAYER', payload: layer });
     dispatch({ type: 'SELECT_COLOR', payload: null });
+    dispatch({ type: 'SAVE_STATE', payload: { label: 'Separate color' } });
   };
 
   const handleExportAllLayers = async () => {
@@ -127,7 +149,10 @@ export function TopBar({ onResetView, colorGrouper, onShowHistory }: TopBarProps
     onResetView();
   };
 
-  const canSeparate = state.geometry !== null && state.selectedColorIndex !== null;
+  const canSeparate = state.geometry !== null && (
+    state.selectedColorIndex !== null || 
+    state.selectedTriangles.length > 0
+  );
 
   return (
     <div className="flex items-center justify-between px-5 py-3 bg-white border-b border-gray-200 shadow-sm">
