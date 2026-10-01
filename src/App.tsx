@@ -8,6 +8,8 @@ import { PaintPanel } from './ui/PaintPanel';
 import { TransformPanel } from './ui/TransformPanel';
 import { ExplodePanel } from './ui/ExplodePanel';
 import { ConnectorPanel } from './ui/ConnectorPanel';
+import { HistoryTimeline } from './ui/HistoryTimeline';
+import { ColorPalette } from './ui/ColorPalette';
 import { Onboarding } from './ui/Onboarding';
 import { DragDrop } from './ui/DragDrop';
 import { Viewer, ViewerAPI } from './viewer/Viewer';
@@ -24,6 +26,7 @@ function AppContent() {
   const prevQuantizeRef = useRef(state.quantizeLevel);
   const viewerRef = useRef<ViewerAPI>(null);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [showHistoryTimeline, setShowHistoryTimeline] = useState(false);
   
   const colorGrouper = useMemo(() => new ColorGrouper(), []);
 
@@ -93,7 +96,16 @@ function AppContent() {
       <Onboarding />
 
       {/* Top Toolbar */}
-      <TopBar onResetView={handleResetView} colorGrouper={colorGrouper} />
+      <TopBar 
+        onResetView={handleResetView} 
+        colorGrouper={colorGrouper}
+        onShowHistory={() => setShowHistoryTimeline(true)}
+      />
+
+      {/* History Timeline Modal */}
+      {showHistoryTimeline && (
+        <HistoryTimeline onClose={() => setShowHistoryTimeline(false)} />
+      )}
 
       {/* Error Banner */}
       {state.error && (
@@ -233,6 +245,13 @@ function AppContent() {
               {state.geometry && (
                 <div className="border-b border-gray-200 overflow-y-auto max-h-[30%]">
                   <TransformPanel />
+                </div>
+              )}
+
+              {/* Color Palette Panel */}
+              {state.layers.length > 0 && (
+                <div className="border-b border-gray-200 overflow-y-auto">
+                  <ColorPalette />
                 </div>
               )}
 

@@ -8,13 +8,14 @@ import { Layer } from '../state/UIState';
 interface TopBarProps {
   onResetView: () => void;
   colorGrouper: ColorGrouper;
+  onShowHistory?: () => void;
 }
 
 /**
  * TopBar - Top toolbar with Load, Separate, Export All Layers, Reset View
  * Silhouette Studio style: large friendly icons, soft shadows, rounded corners
  */
-export function TopBar({ onResetView, colorGrouper }: TopBarProps) {
+export function TopBar({ onResetView, colorGrouper, onShowHistory }: TopBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { state, dispatch } = useAppState();
   
@@ -184,6 +185,46 @@ export function TopBar({ onResetView, colorGrouper }: TopBarProps) {
           </svg>
           Separate
         </button>
+
+        <div className="h-10 w-px bg-gray-200" />
+
+        {/* Undo/Redo buttons */}
+        <button
+          onClick={() => dispatch({ type: 'UNDO' })}
+          disabled={state.historyIndex <= 0}
+          className="px-3 py-2.5 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 text-gray-700 text-sm font-medium rounded-xl transition-all border border-gray-300 flex items-center gap-1.5"
+          title="Undo (Ctrl+Z)"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+          </svg>
+          Undo
+        </button>
+        <button
+          onClick={() => dispatch({ type: 'REDO' })}
+          disabled={state.historyIndex >= state.history.length - 1}
+          className="px-3 py-2.5 bg-white hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 text-gray-700 text-sm font-medium rounded-xl transition-all border border-gray-300 flex items-center gap-1.5"
+          title="Redo (Ctrl+Y)"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a8 8 0 00-8 8v2m18-10l-6 6m6-6l-6-6" />
+          </svg>
+          Redo
+        </button>
+
+        {/* History Timeline button */}
+        {onShowHistory && (
+          <button
+            onClick={onShowHistory}
+            className="px-3 py-2.5 bg-white hover:bg-gray-50 text-gray-700 text-sm font-medium rounded-xl transition-all border border-gray-300 flex items-center gap-1.5"
+            title="View history timeline"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            History ({state.history.length})
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
