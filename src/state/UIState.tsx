@@ -2,7 +2,7 @@ import { createContext, useContext, useReducer, ReactNode } from 'react';
 import * as THREE from 'three';
 import { ColorGroup } from '../geometry/ColorGrouper';
 
-export type UIMode = 'select' | 'highlight' | 'export' | 'paint';
+export type UIMode = 'select' | 'highlight' | 'export' | 'paint' | 'magicwand';
 
 export interface Layer {
   id: string;
@@ -43,10 +43,22 @@ export interface AppState {
   paintMode: 'add' | 'remove';
   lastClickedTriangle: number | null;
   
-  // Undo/Redo history
+  // Undo/Redo history - Enhanced with full state snapshots
   history: Array<{
-    paintedTriangles: number[];
+    id: string;
     timestamp: number;
+    label: string;
+    thumbnail?: string;
+    state: {
+      paintedTriangles: number[];
+      layers: any[];
+      connectors: any[];
+      selectedColorIndex: number | null;
+      selectedLayerId: string | null;
+      explodeView: boolean;
+      explodeDistance: number;
+      uiMode: string;
+    };
   }>;
   historyIndex: number;
   maxHistorySize: number;
@@ -54,6 +66,9 @@ export interface AppState {
   // Auto-save
   lastSavedState: string | null;
   hasUnsavedChanges: boolean;
+  
+  // Print preview mode
+  printPreview: boolean;
 
   // Layers system
   layers: Layer[];
@@ -83,7 +98,7 @@ const initialState: AppState = {
   selectedTriangles: [],
   angleThreshold: 45,
   paintedTriangles: new Set<number>(),
-  brushSize: 5,
+  brushSize: 50, // pixels
   paintMode: 'add',
   lastClickedTriangle: null,
   history: [],
@@ -91,6 +106,7 @@ const initialState: AppState = {
   maxHistorySize: 50,
   lastSavedState: null,
   hasUnsavedChanges: false,
+  printPreview: false,
   layers: [],
   selectedLayerId: null,
   explodeView: false,
@@ -128,10 +144,13 @@ type Action =
   | { type: 'SET_LAST_CLICKED_TRIANGLE'; payload: number | null }
   | { type: 'UNDO' }
   | { type: 'REDO' }
-  | { type: 'SAVE_STATE' }
+  | { type: 'SAVE_STATE'; payload?: { label?: string } }
+  | { type: 'JUMP_TO_HISTORY'; payload: number }
   | { type: 'LOAD_STATE'; payload: string }
   | { type: 'MARK_UNSAVED' }
   | { type: 'MARK_SAVED' }
+  | { type: 'AUTO_COLOR_LAYERS'; payload: string[] }
+  | { type: 'SET_PRINT_PREVIEW'; payload: boolean }
   | { type: 'TOGGLE_EXPLODE_VIEW' }
   | { type: 'SET_EXPLODE_DISTANCE'; payload: number }
   | { type: 'ADD_CONNECTOR'; payload: Connector }
@@ -222,7 +241,14 @@ function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         historyIndex: newIndex,
-        paintedTriangles: new Set(prevState.paintedTriangles),
+        paintedTriangles: new Set(prevState.state.paintedTriangles),
+        layers: prevState.state.layers,
+        connectors: prevState.state.connectors,
+        selectedColorIndex: prevState.state.selectedColorIndex,
+        selectedLayerId: prevState.state.selectedLayerId,
+        explodeView: prevState.state.explodeView,
+        explodeDistance: prevState.state.explodeDistance,
+        uiMode: prevState.state.uiMode as any,
         hasUnsavedChanges: true,
       };
     case 'REDO':
@@ -232,14 +258,33 @@ function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         historyIndex: redoIndex,
-        paintedTriangles: new Set(nextState.paintedTriangles),
+        paintedTriangles: new Set(nextState.state.paintedTriangles),
+        layers: nextState.state.layers,
+        connectors: nextState.state.connectors,
+        selectedColorIndex: nextState.state.selectedColorIndex,
+        selectedLayerId: nextState.state.selectedLayerId,
+        explodeView: nextState.state.explodeView,
+        explodeDistance: nextState.state.explodeDistance,
+        uiMode: nextState.state.uiMode as any,
         hasUnsavedChanges: true,
       };
     case 'SAVE_STATE':
       const newHistory = state.history.slice(0, state.historyIndex + 1);
+      const label = action.payload?.label || 'State change';
       newHistory.push({
-        paintedTriangles: Array.from(state.paintedTriangles),
+        id: `history-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         timestamp: Date.now(),
+        label,
+        state: {
+          paintedTriangles: Array.from(state.paintedTriangles),
+          layers: state.layers,
+          connectors: state.connectors,
+          selectedColorIndex: state.selectedColorIndex,
+          selectedLayerId: state.selectedLayerId,
+          explodeView: state.explodeView,
+          explodeDistance: state.explodeDistance,
+          uiMode: state.uiMode,
+        },
       });
       // Keep only last maxHistorySize entries
       if (newHistory.length > state.maxHistorySize) {
@@ -251,6 +296,34 @@ function reducer(state: AppState, action: Action): AppState {
         historyIndex: newHistory.length - 1,
         hasUnsavedChanges: true,
       };
+    case 'JUMP_TO_HISTORY':
+      const targetIndex = action.payload;
+      if (targetIndex < 0 || targetIndex >= state.history.length) return state;
+      const targetState = state.history[targetIndex];
+      return {
+        ...state,
+        historyIndex: targetIndex,
+        paintedTriangles: new Set(targetState.state.paintedTriangles),
+        layers: targetState.state.layers,
+        connectors: targetState.state.connectors,
+        selectedColorIndex: targetState.state.selectedColorIndex,
+        selectedLayerId: targetState.state.selectedLayerId,
+        explodeView: targetState.state.explodeView,
+        explodeDistance: targetState.state.explodeDistance,
+        uiMode: targetState.state.uiMode as any,
+        hasUnsavedChanges: true,
+      };
+    case 'AUTO_COLOR_LAYERS':
+      const colors = action.payload;
+      return {
+        ...state,
+        layers: state.layers.map((layer, index) => ({
+          ...layer,
+          color: colors[index % colors.length],
+        })),
+      };
+    case 'SET_PRINT_PREVIEW':
+      return { ...state, printPreview: action.payload };
     case 'LOAD_STATE':
       try {
         const loaded = JSON.parse(action.payload);
