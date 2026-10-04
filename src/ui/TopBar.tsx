@@ -58,7 +58,30 @@ export function TopBar({ onResetView, colorGrouper, onShowHistory }: TopBarProps
   const handleSeparate = () => {
     if (!state.geometry) return;
 
-    // Check if we have selected triangles (from magic wand or paint)
+    // Check if we have painted triangles (from paint mode)
+    if (state.paintedTriangles.size > 0) {
+      const paintedArray = Array.from(state.paintedTriangles);
+      
+      // Build geometry from painted triangles
+      const layerGeometry = exportEngine.buildGeometryFromTriangles(state.geometry, paintedArray);
+
+      // Create a new layer
+      const layer: Layer = {
+        id: `layer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: `Painted Part ${state.layers.length + 1}`,
+        colorGroup: null,
+        triangleIndices: paintedArray,
+        visible: true,
+        geometry: layerGeometry,
+      };
+
+      dispatch({ type: 'ADD_LAYER', payload: layer });
+      dispatch({ type: 'CLEAR_PAINTED_TRIANGLES' });
+      dispatch({ type: 'SAVE_STATE', payload: { label: 'Separate painted part' } });
+      return;
+    }
+
+    // Check if we have selected triangles (from magic wand)
     if (state.selectedTriangles.length > 0) {
       // Build geometry from selected triangles
       const layerGeometry = exportEngine.buildGeometryFromTriangles(state.geometry, state.selectedTriangles);
@@ -151,7 +174,8 @@ export function TopBar({ onResetView, colorGrouper, onShowHistory }: TopBarProps
 
   const canSeparate = state.geometry !== null && (
     state.selectedColorIndex !== null || 
-    state.selectedTriangles.length > 0
+    state.selectedTriangles.length > 0 ||
+    state.paintedTriangles.size > 0
   );
 
   return (

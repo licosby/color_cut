@@ -33,6 +33,7 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
   const initialCameraPos = useRef(new THREE.Vector3(5, 4, 5));
   const isDraggingRef = useRef(false);
   const mouseDownPosRef = useRef({ x: 0, y: 0 });
+  const isPaintingRef = useRef(false);
 
   const { state, dispatch } = useAppState();
 
@@ -167,7 +168,7 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     };
   }, []);
 
-  // Click handling
+  // Click and paint handling
   useEffect(() => {
     const container = containerRef.current;
     const renderer = rendererRef.current;
@@ -178,6 +179,12 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     const handleMouseDown = (e: MouseEvent) => {
       isDraggingRef.current = false;
       mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+      
+      // Start painting if in paint mode
+      if (state.uiMode === 'paint') {
+        isPaintingRef.current = true;
+        handlePaint(e);
+      }
     };
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -186,10 +193,49 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
         isDraggingRef.current = true;
       }
+      
+      // Continue painting while dragging
+      if (isPaintingRef.current && state.uiMode === 'paint') {
+        handlePaint(e);
+      }
+    };
+
+    const handleMouseUp = () => {
+      isPaintingRef.current = false;
+    };
+
+    const handlePaint = (e: MouseEvent) => {
+      const camera = cameraRef.current;
+      if (!camera || !state.geometry) return;
+
+      const rect = canvas.getBoundingClientRect();
+      mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycasterRef.current.setFromCamera(mouseRef.current, camera);
+
+      const mainMesh = modelGroupRef.current?.children[0] as THREE.Mesh | undefined;
+      if (!mainMesh || !mainMesh.isMesh) return;
+
+      const intersects = raycasterRef.current.intersectObject(mainMesh, false);
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        if (hit.faceIndex !== undefined && hit.faceIndex !== null) {
+          const triangleIndex = hit.faceIndex;
+          
+          // Add or remove triangle based on paint mode
+          if (state.paintMode === 'add') {
+            dispatch({ type: 'ADD_PAINTED_TRIANGLE', payload: triangleIndex });
+          } else {
+            dispatch({ type: 'REMOVE_PAINTED_TRIANGLE', payload: triangleIndex });
+          }
+        }
+      }
     };
 
     const handleClick = (e: MouseEvent) => {
-      if (isDraggingRef.current) return;
+      if (isDraggingRef.current || state.uiMode === 'paint') return;
 
       const camera = cameraRef.current;
       if (!camera) return;
@@ -219,14 +265,16 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
 
     canvas.addEventListener('mousedown', handleMouseDown);
     canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mouseup', handleMouseUp);
     canvas.addEventListener('click', handleClick);
 
     return () => {
       canvas.removeEventListener('mousedown', handleMouseDown);
       canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('click', handleClick);
     };
-  }, [colorGrouper, dispatch]);
+  }, [colorGrouper, dispatch, state.uiMode, state.paintMode, state.geometry]);
 
   // Update model when geometry changes
   const updateModel = useCallback(() => {
@@ -304,12 +352,38 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     updateModel();
   }, [updateModel]);
 
-  // Highlight selected color
+  // Highlight selected color or painted triangles
   useEffect(() => {
     const highlighting = highlightingRef.current;
     if (!highlighting || !state.geometry) return;
 
-    if (state.selectedColorIndex !== null && state.colorGroups.length > 0) {
+    // Show painted triangles in paint mode
+    if (state.uiMode === 'paint' && state.paintedTriangles.size > 0) {
+      const paintedArray = Array.from(state.paintedTriangles);
+      const tempGroup = {
+        color: state.paintMode === 'add' ? '#FF6B6B' : '#4ECDC4',
+        colorObj: new THREE.Color(state.paintMode === 'add' ? 0xFF6B6B : 0x4ECDC4),
+        triangleIndices: paintedArray,
+        triangleCount: paintedArray.length,
+        r: state.paintMode === 'add' ? 1.0 : 0.31,
+        g: state.paintMode === 'add' ? 0.42 : 0.80,
+        b: state.paintMode === 'add' ? 0.42 : 0.77,
+      };
+      highlighting.highlightTriangles(state.geometry, tempGroup, false);
+
+      // Apply transform to match model
+      const posAttr = state.geometry.getAttribute('position');
+      const box = new THREE.Box3().setFromBufferAttribute(posAttr as THREE.BufferAttribute);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = maxDim > 0 ? 4 / maxDim : 1;
+
+      const hlGroup = highlighting.getGroup();
+      hlGroup.scale.setScalar(scale);
+      hlGroup.position.copy(center.clone().multiplyScalar(-scale));
+    } else if (state.selectedColorIndex !== null && state.colorGroups.length > 0) {
+      // Show selected color
       const selectedGroup = state.colorGroups[state.selectedColorIndex];
       highlighting.highlightTriangles(state.geometry, selectedGroup, true);
 
@@ -327,7 +401,7 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     } else {
       highlighting.clearHighlight();
     }
-  }, [state.selectedColorIndex, state.colorGroups, state.geometry]);
+  }, [state.selectedColorIndex, state.colorGroups, state.geometry, state.paintedTriangles, state.uiMode, state.paintMode]);
 
   return (
     <div
