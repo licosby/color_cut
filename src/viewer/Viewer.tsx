@@ -4,7 +4,6 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useAppState } from '../state/UIState';
 import { Highlighting } from './Highlighting';
 import { ColorGrouper } from '../geometry/ColorGrouper';
-import { PartSelector } from '../geometry/PartSelector';
 
 export interface ViewerAPI {
   resetCamera: () => void;
@@ -18,18 +17,16 @@ interface ViewerProps {
 }
 
 /**
- * Viewer - Three.js 3D viewport with orbit controls, click-to-select, and layer management
+ * Viewer - Complete Three.js 3D viewport
  */
-export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode = 'select', angleThreshold = 45 }, ref) => {
+export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode = 'select' }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const modelGroupRef = useRef<THREE.Group | null>(null);
-  const layersGroupRef = useRef<THREE.Group | null>(null);
   const highlightingRef = useRef<Highlighting | null>(null);
-  const partSelectorRef = useRef<PartSelector>(new PartSelector());
   const animFrameRef = useRef<number>(0);
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
   const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
@@ -62,16 +59,23 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     const width = container.clientWidth;
     const height = container.clientHeight;
 
+    // Scene
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf8f9fc);
     sceneRef.current = scene;
 
+    // Camera
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 2000);
     camera.position.copy(initialCameraPos.current);
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    // Renderer
+    const renderer = new THREE.WebGLRenderer({ 
+      antialias: true, 
+      alpha: false,
+      powerPreference: 'high-performance'
+    });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
@@ -81,6 +85,7 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
+    // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
@@ -89,33 +94,34 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     controls.panSpeed = 0.8;
     controls.minDistance = 1;
     controls.maxDistance = 100;
-    controls.enableRotate = true;
-    controls.enablePan = true;
-    controls.enableZoom = true;
     controlsRef.current = controls;
 
-    // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    // Lighting - bright and even
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     scene.add(ambientLight);
-    const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    mainLight.position.set(8, 12, 10);
+
+    const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    mainLight.position.set(10, 15, 10);
+    mainLight.castShadow = true;
     scene.add(mainLight);
-    const fillLight = new THREE.DirectionalLight(0xe8e8ff, 0.3);
-    fillLight.position.set(-5, 3, -5);
+
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    fillLight.position.set(-10, 5, -10);
     scene.add(fillLight);
 
+    const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
+    backLight.position.set(0, -5, -10);
+    scene.add(backLight);
+
     // Grid
-    const gridHelper = new THREE.GridHelper(20, 40, 0xe2e2e8, 0xededf0);
+    const gridHelper = new THREE.GridHelper(20, 40, 0xd0d0d0, 0xe0e0e0);
     gridHelper.position.y = -0.01;
     scene.add(gridHelper);
 
-    // Layers group
-    layersGroupRef.current = new THREE.Group();
-    layersGroupRef.current.name = 'layersGroup';
-    scene.add(layersGroupRef.current);
-
+    // Highlighting
     highlightingRef.current = new Highlighting(scene);
 
+    // Animation loop
     const animate = () => {
       animFrameRef.current = requestAnimationFrame(animate);
       controls.update();
@@ -123,13 +129,12 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     };
     animate();
 
+    // Resize handling
     let resizeTimeout: number | null = null;
-    
     const handleResize = () => {
       if (resizeTimeout) {
         cancelAnimationFrame(resizeTimeout);
       }
-      
       resizeTimeout = requestAnimationFrame(() => {
         if (!container) return;
         const w = container.clientWidth;
@@ -144,6 +149,7 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(container);
 
+    // Cleanup
     return () => {
       resizeObserver.disconnect();
       if (resizeTimeout) {
@@ -161,18 +167,7 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     };
   }, []);
 
-  // Build adjacency graph when geometry loads
-  useEffect(() => {
-    if (state.geometry) {
-      try {
-        partSelectorRef.current.buildAdjacency(state.geometry);
-      } catch (e) {
-        console.error('Error building adjacency:', e);
-      }
-    }
-  }, [state.geometry]);
-
-  // Click-to-select and painting
+  // Click handling
   useEffect(() => {
     const container = containerRef.current;
     const renderer = rendererRef.current;
@@ -206,23 +201,17 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
       raycasterRef.current.setFromCamera(mouseRef.current, camera);
 
       const mainMesh = modelGroupRef.current?.children[0] as THREE.Mesh | undefined;
-      if (!mainMesh || !mainMesh.isMesh) {
-        return;
-      }
+      if (!mainMesh || !mainMesh.isMesh) return;
 
       const intersects = raycasterRef.current.intersectObject(mainMesh, false);
 
-      if (intersects.length > 0) {
+      if (intersects.length > 0 && colorGrouper) {
         const hit = intersects[0];
-
         if (hit.faceIndex !== undefined && hit.faceIndex !== null) {
           const triangleIndex = hit.faceIndex;
-
-          if (colorGrouper) {
-            const groupIndex = colorGrouper.findGroupIndexByTriangle(triangleIndex);
-            if (groupIndex !== null) {
-              dispatch({ type: 'SELECT_COLOR', payload: groupIndex });
-            }
+          const groupIndex = colorGrouper.findGroupIndexByTriangle(triangleIndex);
+          if (groupIndex !== null) {
+            dispatch({ type: 'SELECT_COLOR', payload: groupIndex });
           }
         }
       }
@@ -239,7 +228,7 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     };
   }, [colorGrouper, dispatch]);
 
-  // Update main model when geometry or selection changes
+  // Update model when geometry changes
   const updateModel = useCallback(() => {
     const scene = sceneRef.current;
     const highlighting = highlightingRef.current;
@@ -271,33 +260,38 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
     const posAttr = geometry.getAttribute('position');
     if (!posAttr || posAttr.count === 0) return;
 
+    // Calculate bounds
     const box = new THREE.Box3().setFromBufferAttribute(posAttr as THREE.BufferAttribute);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z);
     const scale = maxDim > 0 ? 4 / maxDim : 1;
 
+    // Create model group
     const group = new THREE.Group();
     modelGroupRef.current = group;
 
+    // Create material
     const hasColors = geometry.hasAttribute('color');
     const material = new THREE.MeshStandardMaterial({
       vertexColors: hasColors,
       color: hasColors ? 0xffffff : 0x8888aa,
       side: THREE.DoubleSide,
-      metalness: 0.05,
-      roughness: 0.7,
+      metalness: 0.1,
+      roughness: 0.6,
     });
 
     const mesh = new THREE.Mesh(geometry.clone(), material);
     mesh.castShadow = true;
+    mesh.receiveShadow = true;
     group.add(mesh);
 
+    // Apply transform
     group.scale.setScalar(scale);
     group.position.copy(center.clone().multiplyScalar(-scale));
-
     scene.add(group);
 
+    // Reset camera
     if (cameraRef.current && controlsRef.current) {
       cameraRef.current.position.set(5, 4, 5);
       initialCameraPos.current.set(5, 4, 5);
@@ -309,6 +303,31 @@ export const Viewer = forwardRef<ViewerAPI, ViewerProps>(({ colorGrouper, uiMode
   useEffect(() => {
     updateModel();
   }, [updateModel]);
+
+  // Highlight selected color
+  useEffect(() => {
+    const highlighting = highlightingRef.current;
+    if (!highlighting || !state.geometry) return;
+
+    if (state.selectedColorIndex !== null && state.colorGroups.length > 0) {
+      const selectedGroup = state.colorGroups[state.selectedColorIndex];
+      highlighting.highlightTriangles(state.geometry, selectedGroup, true);
+
+      // Apply transform to match model
+      const posAttr = state.geometry.getAttribute('position');
+      const box = new THREE.Box3().setFromBufferAttribute(posAttr as THREE.BufferAttribute);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = maxDim > 0 ? 4 / maxDim : 1;
+
+      const hlGroup = highlighting.getGroup();
+      hlGroup.scale.setScalar(scale);
+      hlGroup.position.copy(center.clone().multiplyScalar(-scale));
+    } else {
+      highlighting.clearHighlight();
+    }
+  }, [state.selectedColorIndex, state.colorGroups, state.geometry]);
 
   return (
     <div
